@@ -1,0 +1,51 @@
+options:
+  layer_type: 'base'
+  name: 'rocky-base'
+  publish_tags: '8.9'
+  pkg_manager: 'dnf'
+  parent: 'scratch'
+  publish_registry: 'registry.dist.si.usrc:5000/stratus'
+  registry_opts_push:
+    - '--tls-verify=false'
+
+repos:
+  - alias: 'Rock_BaseOS'
+    url: 'http://10.15.3.42/repo/pub/rocky/8/BaseOS/x86_64/os'
+    gpg: 'https://dl.rockylinux.org/pub/rocky/RPM-GPG-KEY-Rocky-8'
+  - alias: 'Rock_AppStream'
+    url: 'http://10.15.3.42/repo/pub/rocky/8/AppStream/x86_64/os'
+    gpg: 'https://dl.rockylinux.org/pub/rocky/RPM-GPG-KEY-Rocky-8'
+  - alias: 'Rock_PowerTools'
+    url: 'http://10.15.3.42/repo/pub/rocky/8/PowerTools/x86_64/os'
+    gpg: 'https://dl.rockylinux.org/pub/rocky/RPM-GPG-KEY-Rocky-8'
+  - alias: 'Epel'
+    url: 'http://10.15.3.42/repo/pub/rocky/epel/8/Everything/x86_64/'
+    gpg: 'https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-8'
+
+package_groups:
+  - 'Minimal Install'
+  - 'Development Tools'
+
+packages:
+  - kernel
+  - wget
+  - dracut-live
+
+remove_packages:
+  - rocky-repos
+
+copyfiles:
+  # Overrides for cloud-init
+  - src: '/data/image-configs/files/cloud-init-override.conf'
+    dest: '/etc/systemd/system/cloud-init.service.d/override.conf'
+  - src: '/data/image-configs/files/ochami-ci-setup.sh'
+    dest: '/usr/local/bin/ochami-ci-setup.sh'
+  - src: '/data/image-configs/files/cloud-cfg-d-ochami.cfg.template'
+    dest: '/etc/cloud/cloud.cfg.d/ochami.cfg.template'
+  # Implementation of secure, JWT-auth'd cloud-init
+  - src: '/data/image-configs/files/cloud-init-secure.path'
+    dest: '/etc/systemd/system/cloud-init-secure.path'
+  - src: '/data/image-configs/files/cloud-init-secure.service'
+    dest: '/etc/systemd/system/cloud-init-secure.service'
+  - src: '/data/image-configs/files/ochami-ci-secure-setup.sh'
+    dest: '/usr/local/bin/ochami-ci-secure-setup.sh'

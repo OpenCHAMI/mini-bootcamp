@@ -1,0 +1,47 @@
+options:
+  layer_type: 'base'
+  name: 'compute-base'
+  publish_tags:
+    - '8.9'
+    - 'latest'
+  pkg_manager: 'dnf'
+  parent: 'registry.dist.si.usrc/stratus/rocky-base:8.9'
+  registry_opts_pull:
+    - '--tls-verify=false'
+  
+  # Publish to SI registry
+  publish_registry: 'registry.dist.si.usrc:5000/stratus'
+  registry_opts_push:
+    - '--tls-verify=false'
+
+repos:
+  - alias: 'docker-ce'
+    url: 'https://download.docker.com/linux/centos/docker-ce.repo'
+  - alias: 'OpenHPC'
+    url: 'http://dist.si.usrc/repo/el8/openhpc'
+    gpg: 'http://dist.si.usrc/repo/el8/openhpc/repodata/repomd.xml.key'
+  - alias: 'OpenHPC-updates'
+    url: 'http://dist.si.usrc/repo/el8/openhpc/updates'
+    gpg: 'http://dist.si.usrc/repo/el8/openhpc/updates/repodata/repomd.xml.key'
+
+packages:
+  - cloud-init
+  - python3
+  - vim
+  - nfs-utils
+  - chrony
+  - cmake3
+  - dmidecode
+  - fortune-mod  
+  - hwloc
+  - jq
+  - libpsm2
+  - libpsm2-compat
+  - make
+  - ohpc-base-compute
+  - perf
+  - sqlite
+  - tcpdump
+  - traceroute
+  - nss_db
+  - lua-posix

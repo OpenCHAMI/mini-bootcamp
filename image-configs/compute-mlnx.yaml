@@ -1,0 +1,22 @@
+options:
+  layer_type: 'base'
+  name: 'compute-mlnx'
+  publish_tags:
+    - '8.9'
+    - 'latest'
+  pkg_manager: 'dnf'
+  parent: 'registry.dist.si.usrc/stratus/compute-base:8.9'
+  registry_opts_pull:
+    - '--tls-verify=false'
+
+  # Publish to SI registry
+  publish_registry: 'registry.dist.si.usrc:5000/stratus'
+  registry_opts_push:
+    - '--tls-verify=false'
+
+package_groups:
+  - 'Infiniband Support'
+
+cmds:
+  - cmd: 'dracut --add "dmsquash-live livenet network-manager" --kver $(basename /lib/modules/*) -N -f --logfile /tmp/dracut.log 2>/dev/null' 
+  - cmd: 'echo DRACUT LOG:; cat /tmp/dracut.log'

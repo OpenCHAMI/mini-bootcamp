@@ -1,0 +1,19 @@
+# NOTE: When this unit is waiting for its JWT file to appear, it is in the
+# "active (waiting)" state. If a user launches cloud-init-secure.service
+# manually, systemd will start this path unit and immediately count "active
+# (waiting)" as "active." As a result, if this kind of manual cloud-init launch
+# happens, we can't guarantee that the JWT file exists.
+
+# TLDR: Launching cloud-init-secure manually may fail if the JWT hasn't yet
+# been pushed.
+
+[Unit]
+Description="Wait to receive our cloud-init token"
+
+[Path]
+PathExists=/var/run/cloud-init-jwt
+Unit=cloud-init-secure.service
+
+[Install]
+RequiredBy=cloud-init-secure.service
+WantedBy=multi-user.target

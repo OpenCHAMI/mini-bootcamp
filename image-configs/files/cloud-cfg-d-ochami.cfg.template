@@ -1,0 +1,3 @@
+datasource:
+  NoCloud:
+    seedfrom: SEEDFROM_URL_PLACEHOLDER

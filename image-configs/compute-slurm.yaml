@@ -1,0 +1,26 @@
+options:
+  layer_type: 'base'
+  name: 'compute-slurm'
+  publish_tags:
+    - '8.9'
+    - 'latest'
+  pkg_manager: 'dnf'
+  parent: 'registry.dist.si.usrc/stratus/compute-mlnx:8.9'
+  registry_opts_pull:
+    - '--tls-verify=false'
+
+  # Publish to SI registry
+  publish_registry: 'registry.dist.si.usrc:5000/stratus'
+  registry_opts_push:
+    - '--tls-verify=false'
+
+packages:
+  - slurm-ohpc
+  - slurm-slurmd-ohpc
+  - slurm-example-configs-ohpc
+
+cmds:
+  - cmd: 'chown -R munge:munge /var/lib/munge'
+  - cmd: 'chown -R munge:munge /var/log/munge'
+  - cmd: 'chown -R munge:munge /etc/munge'
+  - cmd: 'echo SLURM'
