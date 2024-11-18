@@ -958,7 +958,7 @@ Look at us, we built a bunch of layers and now we have an image we can boot.
 
 The layers are all sitting in the `registry.dist.si.openchami:5000` registry, which means we can pull them and create a bootable image just like before
 ```bash
-podman pull --tls-verify=false registry.dist.si.openchami:5000/stratus/compute-slurm:latest
+podman pull --tls-verify=false registry.dist.si.usrc:5000/stratus/compute-slurm:latest
 ```
 Again make sure you are using your endpoint
 
@@ -969,7 +969,7 @@ mkdir -p /data/domain-images/openchami/compute-slurm/latest
 
 Then get all the things
 ```bash
-MNAME=$(podman image mount registry.dist.si.openchami:5000/stratus/compute-slurm)
+MNAME=$(podman image mount registry.dist.si.usrc:5000/stratus/compute-slurm)
 KVER=$(ls $MNAME/lib/modules)
 cp -f $MNAME/boot/vmlinuz-$KVER /data/domain-images/openchami/compute-slurm/latest/
 cp -f $MNAME/boot/initramfs-$KVER.img /data/domain-images/openchami/compute-slurm/latest/
