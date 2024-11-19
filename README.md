@@ -13,26 +13,6 @@ We'll go over some config management, but it will not be a full system deploymen
 OpenCHAMI doesn't provide an image build system. It relies on external images being available.  
 We'll go over how we are building images locally but they won't be full production-like images
 
-## Login to your SI machine
-To make your life easy, update/add to your local `~/.ssh/config`:
-
-```bash
-Host usrc.newmexicoconsortium.org
-        User <nmc-username>
-        ServerAliveInterval 60
-        ServerAliveCountMax 15
-Host <si-head>
-        User <si-username>
-        Hostname <si-ip>
-        ProxyJump usrc.newmexicoconsortium.org
-        ServerAliveInterval 60
-        ServerAliveCountMax 15
-```
-Then you can `ssh <si-head>`. Enter your USRC password, then the password provided to you.  
-You'll have to change your password on first login.
-
-You can add SSH keys so that you only have to enter your USRC password, no way around that unfortunately
-
 ## Prep
 Some stuff we need before we start deploying OpenCHAMI
 
@@ -41,29 +21,29 @@ Some stuff we need before we start deploying OpenCHAMI
 dnf install -y ansible git podman jq
 ```
 ### Setup hosts
-Each cluster has a name and a shortname. This cluster is `Stratus` and the shortname is `st`.
-The BMCs are named `p<shortname>`. 
+Clusters generally have names. This cluster is named `demo` and the shortname for our nodes is `nid`. Feel free to be creative on your own time.  
+The BMCs are named `<shortname>-bmc`. 
 Make your `/etc/hosts` look something like
 ```bash
-172.16.0.254    stratus.openchami.cluster
-172.16.0.1      st001
-172.16.0.2      st002
-172.16.0.3      st003
-172.16.0.4      st004
-172.16.0.5      st005
-172.16.0.6      st006
-172.16.0.7      st007
-172.16.0.8      st008
-172.16.0.9      st009
-172.16.0.101    pst001
-172.16.0.102    pst002
-172.16.0.103    pst003
-172.16.0.104    pst004
-172.16.0.105    pst005
-172.16.0.106    pst006
-172.16.0.107    pst007
-172.16.0.108    pst008
-172.16.0.109    pst009
+172.16.0.254    demo.openchami.cluster
+172.16.0.1      nid001
+172.16.0.2      nid002
+172.16.0.3      nid003
+172.16.0.4      nid004
+172.16.0.5      nid005
+172.16.0.6      nid006
+172.16.0.7      nid007
+172.16.0.8      nid008
+172.16.0.9      nid009
+172.16.0.101    nid-bmc001
+172.16.0.102    nid-bmc002
+172.16.0.103    nid-bmc003
+172.16.0.104    nid-bmc004
+172.16.0.105    nid-bmc005
+172.16.0.106    nid-bmc006
+172.16.0.107    nid-bmc007
+172.16.0.108    nid-bmc008
+172.16.0.109    nid-bmc009
 ```
 
 ### powerman + conman
@@ -75,8 +55,8 @@ Configure `/etc/powerman/powerman.conf`, remember your cluster shortnames. User/
 ```bash
 include "/etc/powerman/ipmipower.dev"
 
-device "ipmi0" "ipmipower" "/usr/sbin/ipmipower -D lanplus -u admin -p Password123! -h pst[001-009] -I 17 -W ipmiping |&"
-node "st[001-009]" "ipmi0" "pst[001-009]"
+device "ipmi0" "ipmipower" "/usr/sbin/ipmipower -D lanplus -u admin -p Password123! -h nid-bmc[001-009] -I 17 -W ipmiping |&"
+node "nid[001-009]" "ipmi0" "nid-bmc[001-009]"
 ```
 Start and enable powerman:
 ```bash
@@ -104,15 +84,15 @@ GLOBAL log="/var/log/conman/console.%N"
 GLOBAL logopts="sanitize,timestamp"
 
 # Compute nodes
-CONSOLE name="st001" dev="ipmi:pst001" ipmiopts="U:admin,P:Password123!,C:17,W:solpayloadsize"
-CONSOLE name="st002" dev="ipmi:pst002" ipmiopts="U:admin,P:Password123!,C:17,W:solpayloadsize"
-CONSOLE name="st003" dev="ipmi:pst003" ipmiopts="U:admin,P:Password123!,C:17,W:solpayloadsize"
-CONSOLE name="st004" dev="ipmi:pst004" ipmiopts="U:admin,P:Password123!,C:17,W:solpayloadsize"
-CONSOLE name="st005" dev="ipmi:pst005" ipmiopts="U:admin,P:Password123!,C:17,W:solpayloadsize"
-CONSOLE name="st006" dev="ipmi:pst006" ipmiopts="U:admin,P:Password123!,C:17,W:solpayloadsize"
-CONSOLE name="st007" dev="ipmi:pst007" ipmiopts="U:admin,P:Password123!,C:17,W:solpayloadsize"
-CONSOLE name="st008" dev="ipmi:pst008" ipmiopts="U:admin,P:Password123!,C:17,W:solpayloadsize"
-CONSOLE name="st009" dev="ipmi:pst009" ipmiopts="U:admin,P:Password123!,C:17,W:solpayloadsize"
+CONSOLE name="nid001" dev="ipmi:nid-bmc001" ipmiopts="U:admin,P:Password123!,C:17,W:solpayloadsize"
+CONSOLE name="nid002" dev="ipmi:nid-bmc002" ipmiopts="U:admin,P:Password123!,C:17,W:solpayloadsize"
+CONSOLE name="nid003" dev="ipmi:nid-bmc003" ipmiopts="U:admin,P:Password123!,C:17,W:solpayloadsize"
+CONSOLE name="nid004" dev="ipmi:nid-bmc004" ipmiopts="U:admin,P:Password123!,C:17,W:solpayloadsize"
+CONSOLE name="nid005" dev="ipmi:nid-bmc005" ipmiopts="U:admin,P:Password123!,C:17,W:solpayloadsize"
+CONSOLE name="nid006" dev="ipmi:nid-bmc006" ipmiopts="U:admin,P:Password123!,C:17,W:solpayloadsize"
+CONSOLE name="nid007" dev="ipmi:nid-bmc007" ipmiopts="U:admin,P:Password123!,C:17,W:solpayloadsize"
+CONSOLE name="nid008" dev="ipmi:nid-bmc008" ipmiopts="U:admin,P:Password123!,C:17,W:solpayloadsize"
+CONSOLE name="nid009" dev="ipmi:nid-bmc009" ipmiopts="U:admin,P:Password123!,C:17,W:solpayloadsize"
 ```
 Then start and enable `conman`
 ```bash
@@ -122,90 +102,11 @@ systemctl enable conman
 
 At this point you can test powering on a node and check that conman is working
 ```bash
-pm -1 st001
-conman st001
+pm -1 nid001
+conman nid001
 ```
 You should at least see console output, but it won't boot just yet...
 
-### Building a test image
-We'll build a test image real quick to boot into. Won't be anything special.
-
-First install `buildah`
-```bash
-dnf install -y buildah
-```
-Create a blank container
-```bash
-CNAME=$(buildah from scratch)
-```
-Mount it 
-```bash
-MNAME=$(buildah mount $CNAME)
-```
-Install some base packages
-```bash
-dnf groupinstall -y --installroot=$MNAME --releasever=8 "Minimal Install"
-```
-Install the kernel and some need dracut stuff:
-```bash
-dnf install -y --installroot=$MNAME kernel dracut-live fuse-overlayfs cloud-init
-```
-Then rebuld the initrd so that during dracut it will download the image and mount the rootfs as an in memory overlay
-```bash
-buildah run --tty $CNAME bash -c ' \
-    dracut \
-    --add "dmsquash-live livenet network-manager" \
-    --kver $(basename /lib/modules/*) \
-    -N \
-    -f \
-    --logfile /tmp/dracut.log 2>/dev/null \
-    '
-```
-Then commit it
-```bash
-buildah commit $CNAME test-image:v1
-```
-While we're here we'll get the initrd, vmlinuz, and build a rootfs to boot from. 
-We have a container that holds all three of these items we just need to pull them out. 
-
-Setup a directory to store these. We'll use an nginx container to serve these out later on.
-```bash
-mkdir -p /data/domain-images/openchami/rocky/test
-```
-
-Get the kernel version of the image
-```bash
-KVER=$(ls $MNAME/lib/modules)
-```
-If you have more than one kernel installed then something went very wrong
-
-Get the initrd and vmlinuz
-```bash
-cp $MNAME/boot/initramfs-$KVER.img /data/domain-images/openchami/rocky/test
-chmod o+r /data/domain-images/openchami/rocky/test/initramfs-$KVER.img
-cp $MNAME/boot/vmlinuz-$KVER /data/domain-images/openchami/rocky/test
-```
-
-Now let's make a squashfs of the rootfs
-```bash
-mksquashfs $MNAME /data/domain-images/openchami/rocky/test/rootfs-$KVER -noappend -no-progress
-```
-
-After all this you should have something that looks like so
-```bash
-[root@st-head ~]# ls -l /data/domain-images/openchami/rocky/test/
-total 1244104
--rw----r-- 1 root root  102142693 Oct 16 09:04 initramfs-4.18.0-553.22.1.el8_10.x86_64.img
--rw-r--r-- 1 root root 1160933376 Oct 16 09:07 rootfs-4.18.0-553.22.1.el8_10.x86_64
--rwxr-xr-x 1 root root   10881352 Oct 16 09:04 vmlinuz-4.18.0-553.22.1.el8_10.x86_64
-```
-We'll use these later. 
-
-Clean up the container stuff
-```bash
-buildah umount $CNAME
-buildah rm $CNAME
-```
 
 ## OpenCHAMI microservices
 OpenCHAMI is a long acronym for something that is probably a lot more simple than you would expect. OpenCHAMI is ostensibly based on CSM but really we took SMD and BSS and that's about it. 
@@ -305,16 +206,16 @@ Here will have to make some local changes that match your system
 The inventory is a single node so just change `inventory/01-ochami` and set
 ```ini
 [ochami]
-st-head.si.openchami
+st-head.si.usrc
 ```
-To be the value of `hostname` (st-head.si.openchami in this case).  
+To be the value of `hostname` (st-head.si.usrc in this case).  
 
 ### Set cluster names
-Pick a cluster name and shortname. These examples use `Stratus` and `st` respectively.  
+Pick a cluster name and shortname. These examples use `demo` and `nid` respectively.  
 These are set in `inventory/group_vars/ochami/cluster.yaml`
 ```yaml
-cluster_name: "stratus"
-cluster_shortname: "st"
+cluster_name: "demo"
+cluster_shortname: "nid"
 ```
 
 ### Setup a private SSH key pair
@@ -330,15 +231,6 @@ cluster_boot_ssh_pub_key: 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDZW66ja<snip> =
 ```
  Replace what is there with what `ssh-keygen` created. Make sure it is the pub key. 
 
-### Configure BSS
-We'll use the test image we built previously.  
-Modify `inventory/group_vars/ochami/bss.yaml` and set
-```yaml
-bss_kernel_version: '4.18.0-553.22.1.el8_10.x86_64'
-bss_image_version: 'rocky/test'
-```
-The `bss_kernel_version` should match `echo $KVER` if that is still set or you can check `/data/domain-images/openchami/rocky/test/`. 
-
 ### Populate nodes
 Now we need to populate `inventory/group_vars/ochami/nodes.yaml`. This describes your cluster in a flat yaml file. 
 It will look something like:
@@ -350,7 +242,7 @@ nodes:
     nid: 1
     xname: x1000c1s7b0n0
     group: compute
-    name: st001
+    name: nid001
 ```
 Your clusters have 9 computes, so you will have 9 entries. 
 The really important bits here are the MACs. Everything else is made up and you can mostly leave it alone except for the `name`, which you should change to match your `cluster_shortname`. 
@@ -361,7 +253,7 @@ Make a script `gen_nodes_file.sh` (and you guys are gonna be so impressed)
 ```bash
 #!/bin/bash
 nid=1
-SN=${SN:-yo}
+SN=${SN:-nid}
 echo "nodes:"
 for i in {1..9}
 do
@@ -400,10 +292,6 @@ You can then copy that to your ansible inventory (and replace the nodes.yaml tha
 Almost done. Run the provided playbook with the `configs` tag:
 ```bash
 ansible-playbook -l $HOSTNAME -c local -i inventory -t configs ochami_playbook.yaml
-```
-After that runs we gotta reboot
-```bash
-reboot
 ```
 Once the system is back up, run the full playbook
 ```bash
@@ -469,6 +357,7 @@ kernel:  http://172.16.0.254:8080/openchami/rocky/v1/vmlinuz-4.18.0-553.22.1.el8
 initrd:  http://172.16.0.254:8080/openchami/rocky/v1/initramfs-4.18.0-553.22.1.el8_10.x86_64.img
 params:  root=live:http://172.16.0.254:8080/openchami/rocky/v1/rootfs-4.18.0-553.22.1.el8_10.x86_64 ochami_ci_url=http://172.16.0.254:8081/cloud-init/ ochami_ci_url_secure=http://172.16.0.254:8081/cloud-init-secure/ overlayroot=tmpfs overlayroot_cfgdisk=disabled nomodeset ro ip=dhcp apparmor=0 selinux=0 console=ttyS0,115200 ip6=off network-config=disabled rd.shell
 ```
+We'll have to update these values later when we build a test image. But for now we can see that it is at least working...
 
 Check cloud-init is populated with `ochami-cli cloud-init --get-ci-data --name compute`
 ```yaml
@@ -487,16 +376,112 @@ name: compute
 ```
 We only setup authorized keys on the computes for now. 
 
+### Building a test image
+We'll build a test image real quick to boot into. Won't be anything special.
+
+First install `buildah`
+```bash
+dnf install -y buildah
+```
+Create a blank container
+```bash
+CNAME=$(buildah from scratch)
+```
+Mount it 
+```bash
+MNAME=$(buildah mount $CNAME)
+```
+Install some base packages
+```bash
+dnf groupinstall -y --installroot=$MNAME --releasever=8 "Minimal Install"
+```
+Install the kernel and some need dracut stuff:
+```bash
+dnf install -y --installroot=$MNAME kernel dracut-live fuse-overlayfs cloud-init
+```
+Then rebuld the initrd so that during dracut it will download the image and mount the rootfs as an in memory overlay
+```bash
+buildah run --tty $CNAME bash -c ' \
+    dracut \
+    --add "dmsquash-live livenet network-manager" \
+    --kver $(basename /lib/modules/*) \
+    -N \
+    -f \
+    --logfile /tmp/dracut.log 2>/dev/null \
+    '
+```
+Then commit it
+```bash
+buildah commit $CNAME test-image:v1
+```
+While we're here we'll get the initrd, vmlinuz, and build a rootfs to boot from. 
+We have a container that holds all three of these items we just need to pull them out. 
+
+Setup a directory to store these. We'll use an nginx container to serve these out later on.
+```bash
+mkdir -p /data/domain-images/openchami/rocky/test
+```
+
+Get the kernel version of the image
+```bash
+KVER=$(ls $MNAME/lib/modules)
+```
+If you have more than one kernel installed then something went very wrong
+
+Get the initrd and vmlinuz
+```bash
+cp $MNAME/boot/initramfs-$KVER.img /data/domain-images/openchami/rocky/test
+chmod o+r /data/domain-images/openchami/rocky/test/initramfs-$KVER.img
+cp $MNAME/boot/vmlinuz-$KVER /data/domain-images/openchami/rocky/test
+```
+
+Now let's make a squashfs of the rootfs
+```bash
+mksquashfs $MNAME /data/domain-images/openchami/rocky/test/rootfs-$KVER -noappend -no-progress
+```
+
+After all this you should have something that looks like so
+```bash
+[root@st-head ~]# ls -l /data/domain-images/openchami/rocky/test/
+total 1244104
+-rw----r-- 1 root root  102142693 Oct 16 09:04 initramfs-4.18.0-553.22.1.el8_10.x86_64.img
+-rw-r--r-- 1 root root 1160933376 Oct 16 09:07 rootfs-4.18.0-553.22.1.el8_10.x86_64
+-rwxr-xr-x 1 root root   10881352 Oct 16 09:04 vmlinuz-4.18.0-553.22.1.el8_10.x86_64
+```
+We'll use these later. 
+
+Clean up the container stuff
+```bash
+buildah umount $CNAME
+buildah rm $CNAME
+```
+### Configure BSS
+We need to update BSS to use this image.  
+Modify `inventory/group_vars/ochami/bss.yaml` and set
+```yaml
+bss_kernel_version: '4.18.0-553.22.1.el8_10.x86_64'
+bss_image_version: 'rocky/test'
+```
+The `bss_kernel_version` should match `echo $KVER` if that is still set or you can check `/data/domain-images/openchami/rocky/test/`. 
+
+Update BSS to use these new settings:
+```bash
+ansible-playbook -l $HOSTNAME -c local -i inventory -t bss ochami_playbook.yaml
+```
+You can check to make sure it got set correctly with
+```bash
+ochami-cli bss --get-bootparams
+```
 
 ## Booting nodes
 Let's open like, I don't know, 4-5 windows.
 You should be able to boot nodes now, but lets start with just one
 ```bash
-pm -1 st001
+pm -1 nid001
 ```
 and watch the console
 ```bash
-conman st001
+conman nid001
 ```
 
 Checking the logs will help debug boot issues and/or see the nodes interacting with the OpenCHAMI services.
