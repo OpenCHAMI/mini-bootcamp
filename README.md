@@ -909,12 +909,12 @@ Get the tool source at https://github.com/OpenCHAMI/image-builder
 
 Then build the DNF version:
 ```bash
-podman build -t image-builder:test -f dockerfiles/dnf/Dockerfile_interactive .
+podman build -t image-builder:test -f dockerfiles/dnf/Dockerfile .
 ```
 Now we have a container that will build other continers. Yay  
 Let's grab the image configs
 ```bash
-git clone git@gitlab.newmexicoconsortium.org:si/mini-ochami-bootcamp.git
+git clone https://github.com/OpenCHAMI/mini-bootcamp.git
 cd mini-ochami-bootcamp
 ```
 
@@ -1026,6 +1026,63 @@ ochami-cli cloud-init --secure --add-ci-data --payload compute-secure.yaml
 ```
 
 When the node next boot it will attempt to get the secure data after the JWT is dropped. If it has something (like the munge key) it will run it just like the first cloud-init run. This would be a great place to put the ssh host keys...
+
+
+## Slurm
+Slurm is outside the scope of OpenCHAMI, but we wouldn't have a complete(ish) system without some kind of resource management. 
+We already built an image with the slurm client so all we need to do is configure the slurm controller and we're done. Right?
+
+Install the controller
+```bash
+dnf install slurm-slurmctld
+```
+Then create the config file. You'll have to set the `ControlMachine` to your head node's hostname...
+```
+ClusterName=instructors
+ControlMachine=st-head
+SlurmUser=root
+SlurmctldPort=6817
+SlurmdPort=6818
+AuthType=auth/munge
+StateSaveLocation=/var/spool/slurmctld
+SlurmdSpoolDir=/var/spool/slurmd
+SwitchType=switch/none
+MpiDefault=none
+SlurmctldPidFile=/var/run/slurmctld.pid
+SlurmdPidFile=/var/run/slurmd.pid
+ProctrackType=proctrack/pgid
+LaunchParameters=use_interactive_step
+InteractiveStepOptions="-n1 -N1 --mem-per-cpu=0 --interactive --pty --preserve-env --mpi=none $SHELL"
+SlurmctldTimeout=300
+SlurmdTimeout=300
+InactiveLimit=0
+MinJobAge=300
+KillWait=30
+Waittime=0
+SchedulerType=sched/backfill
+SelectType=select/cons_tres
+SelectTypeParameters=CR_Core
+SlurmctldDebug=info
+SlurmctldLogFile=/var/log/slurmctld.log
+SlurmdDebug=info
+SlurmdLogFile=/var/log/slurmd.log
+TaskPlugin=task/affinity
+PropagateResourceLimitsExcept=MEMLOCK
+JobCompType=jobcomp/filetxt
+Epilog=/etc/slurm/slurm.epilog.clean
+NodeName=nid[001-009] Sockets=1 CoresPerSocket=32 ThreadsPerCore=1 State=UNKNOWN
+PartitionName=cluster Nodes=nid[001-009] Default=YES MaxTime=INFINITE State=UP Oversubscribe=EXCLUSIVE
+SlurmctldParameters=enable_configless
+ReturnToService=1
+HealthCheckProgram=/usr/sbin/nhc
+HealthCheckInterval=300
+RebootProgram=/sbin/reboot
+ResumeTimeout=600
+```
+Then start munge and the controller
+```bash
+systemctl start munge slurmctld
+```
 
 ## The Rest...
 Now you know how to 

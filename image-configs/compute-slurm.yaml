@@ -23,4 +23,5 @@ cmds:
   - cmd: 'chown -R munge:munge /var/lib/munge'
   - cmd: 'chown -R munge:munge /var/log/munge'
   - cmd: 'chown -R munge:munge /etc/munge'
+  - cmd: 'systemctl enable slurmd'
   - cmd: 'echo SLURM'
