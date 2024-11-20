@@ -289,11 +289,7 @@ If a node's BMC does not respond it will generate a MAC address, You can fix it 
 You can then copy that to your ansible inventory (and replace the nodes.yaml that is there).
 
 ### Running the OpenCHAMI playbook
-Almost done. Run the provided playbook with the `configs` tag:
-```bash
-ansible-playbook -l $HOSTNAME -c local -i inventory -t configs ochami_playbook.yaml
-```
-Once the system is back up, run the full playbook
+Almost done. Run the provided playbook:
 ```bash
 ansible-playbook -l $HOSTNAME -c local -i inventory ochami_playbook.yaml
 ```
