@@ -1003,7 +1003,7 @@ cloud-init:
           w7MwDvqASzXqq8pRk2K4Vd8Hs0/sdyEMs4S0BHn1AOU6PAkXSRO3dnomOLX+15IIR7DFzGyUpyBS
           EZN1mG2tB8aeosVGn8MZ9uLtYrQT4Nbb1aiPvpxEuZsFcrzGogS+TRs8NmbC4HMyUwJtxFpw5Q==
         path: /etc/munge/munge.key
-        permission: '0400'
+        permissions: '0400'
         owner: 'munge:munge'
         encoding: base64
   metadata:
@@ -1263,7 +1263,7 @@ cloud-init:
           w7MwDvqASzXqq8pRk2K4Vd8Hs0/sdyEMs4S0BHn1AOU6PAkXSRO3dnomOLX+15IIR7DFzGyUpyBS
           EZN1mG2tB8aeosVGn8MZ9uLtYrQT4Nbb1aiPvpxEuZsFcrzGogS+TRs8NmbC4HMyUwJtxFpw5Q==
         path: /etc/munge/munge.key
-        permission: '0400'
+        permissions: '0400'
         owner: 'munge:munge'
         encoding: base64
   metadata:
