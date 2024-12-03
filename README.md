@@ -122,9 +122,6 @@ We wrote a custom cloud-init server that does some things similar to BSS. It wil
 The server has two endpoints: `/cloud-init` and `cloud-init-secure`. Aptly named, the secure functions like the regular endpoint but requires a JWT to read from it. This is how we are providing secret data to the cluster nodes. 
 ### TPM-manager
 Not so aptly named, this service is a weird one. It's inital function was to experiment on configuring TPMs during boot. But some of the test systems did not have TPMs and so it's basic function is to generate a JWT and push it to the nodes during boot. 
-### dnsmasq-load and dnsmasq
-OpenCHAMI doesn't have it's own DHCP implementation and that is intentional. We try leverage existing software where we can and dnsmasq was our first attempt at integrating DHCP.
-The only customization is we added was the dnsmasq-loader. It runs a python script every minute to read from SMD and populate the dnsmasq config.
 
 ### opaal and Hydra
 #### Hydra
@@ -152,10 +149,7 @@ We'll cover some of these briefly. Very Briefly.
 These are all important parts of the boot process. 
 
 #### DHCP
-DHCP is all over the place so I'm not gonna go over what DHCP is. OpenCHAMI provides a couple options for DHCP but there is no OpenCHAMI DHCP implementation. 
-We have DHCP containers available but these are built on top of pre-existing DHCP implementations. This tutorial will be using dnsmasq.
-One other option is using coreDHCP. We blur the lines here a bit because we have written a coreDHCP plugin to work with the OpenCHAMI services. 
-We will not be using coreDHCP here though. 
+DHCP is all over the place so I'm not gonna go over what DHCP is. OpenCHAMI provides a [CoreDHCP](https://github.com/coredhcp/coredhcp) plugin called [coresmd](https://github.com/OpenCHAMI/coresmd). This links up with SMD to build out the config files and also provides TFTP based on the nodes architecture. This allows us to boot many types of systems.
 
 #### iPXE
 iPXE is also something we should all be familiar with. OpenCHAMI interacts with iPXE via BSS, as explained above, but does not control the entire workflow.
@@ -181,7 +175,7 @@ A good, in depth overview of microservices can be found [here](https://microserv
 
 Containers are pretty ubiquitous now and I'm sure we've all had some ratio of positive and negative experiences.
 There are a lot of container orchestrators ranging from fairly simple like Docker and Podman to more complicated like Kubernetes. 
-OpenCHAMI DOES NOT CARE about whatever orchestrator you choose to use. The strategy recommonded is to follow the opt-in complexity model.
+OpenCHAMI DOES NOT CARE about whatever orchestrator you choose to use. The strategy recommended is to follow the opt-in complexity model.
 In other words, don't start with the most complicated deployment, start simple.
 
 The OpenCHAMI microservices are distributed as containers which allow for a flexible deployment model. 
@@ -300,8 +294,7 @@ At the end you should have these containers running:
 # podman ps | awk '{print $NF}' | sort
 bss
 cloud-init-server
-dnsmasq
-dnsmasq-loader
+coresmd
 haproxy
 hydra
 image-server
@@ -899,9 +892,10 @@ for a container's dependency. The whole startup chain looks like this
 In the Prep section we built a test image using Buildah. The image-build tool does pretty much the same thing but is a fancy python wrapper around Buildah.  
 We can build more complicated images and layer them with the `image-build` tool using simple config files. 
 
-To pull from the NMC git you might have to add SSH keys to your gitlab account
-
-Get the tool source at https://github.com/OpenCHAMI/image-builder
+Get the tool source
+```bash 
+git clone https://github.com/OpenCHAMI/image-builder
+```
 
 Then build the DNF version:
 ```bash
@@ -1028,15 +1022,16 @@ When the node next boot it will attempt to get the secure data after the JWT is 
 Slurm is outside the scope of OpenCHAMI, but we wouldn't have a complete(ish) system without some kind of resource management. 
 We already built an image with the slurm client so all we need to do is configure the slurm controller and we're done. Right?
 
+### Slurm Controller
 Install the controller
 ```bash
-dnf install slurm-slurmctld
+dnf install -y slurm-slurmctld-ohpc
 ```
-Then create the config file. You'll have to set the `ControlMachine` to your head node's hostname...
+Then create the config file. You'll have to set the `ControlMachine` to your head node's hostname and update the compute node hardware specifics...
 ```
-ClusterName=instructors
-ControlMachine=st-head
-SlurmUser=root
+ClusterName=demo
+ControlMachine=<head-node-hostname>
+SlurmUser=slurm
 SlurmctldPort=6817
 SlurmdPort=6818
 AuthType=auth/munge
@@ -1066,19 +1061,228 @@ TaskPlugin=task/affinity
 PropagateResourceLimitsExcept=MEMLOCK
 JobCompType=jobcomp/filetxt
 Epilog=/etc/slurm/slurm.epilog.clean
-NodeName=nid[001-009] Sockets=1 CoresPerSocket=32 ThreadsPerCore=1 State=UNKNOWN
+NodeName=nid[001-009] Sockets=2 CoresPerSocket=32 ThreadsPerCore=2 State=UNKNOWN
 PartitionName=cluster Nodes=nid[001-009] Default=YES MaxTime=INFINITE State=UP Oversubscribe=EXCLUSIVE
 SlurmctldParameters=enable_configless
 ReturnToService=1
-HealthCheckProgram=/usr/sbin/nhc
-HealthCheckInterval=300
 RebootProgram=/sbin/reboot
 ResumeTimeout=600
+```
+Setup logging for `slurmctld`
+```bash
+touch /var/log/slurmctld.log
+chown slurm:slurm /var/log/slurmctld.log
 ```
 Then start munge and the controller
 ```bash
 systemctl start munge slurmctld
 ```
+
+We have munge and slurmctld running, but we'll also need chrony
+```bash
+dnf install -y chrony
+```
+Then set the `/etc/chrony.conf` to something like...
+```ini
+pool 2.rocky.pool.ntp.org iburst
+driftfile /var/lib/chrony/drift
+makestep 1.0 3
+rtcsync
+allow 172.16.0.0/24
+keyfile /etc/chrony.keys
+leapsectz right/UTC
+logdir /var/log/chrony
+```
+Then start and enable chronyd
+```bash
+systemctl enable --now chronyd
+```
+
+We have our controller running but what about the compute settings?
+
+### Unsecure Cloud-init
+Let's use cloud-init! We'll need a couple of things
+- slurm configs
+- chrony configs
+- a populated `/etc/hosts`
+
+Since we'll be using cloud-init, let's start with a unsecure cloud-init config file `compute.yaml`.  
+we'll start by populating it with an SSH pub key. Get the contents of you pub key.
+```bash
+cat ~/.ssh/id_rsa.pub | base64 
+```
+And update `compute.yaml` to look something like
+```yaml
+name: compute
+cloud-init:
+  userdata:
+    ssh_deletekeys: false
+    write_files:
+      - content: |
+          c3NoLXJzYSBBQUFBQjNOemFDMXljMkVBQUFBREFRQUJBQUFCZ1FDOHZ5SExCWEluY0JwN0o0WTc0
+          cXhJNGpSbFgvcFJ5RktyQkd5L2djYkFYKyt3eEF4Mlp3MHFEeHJMM2N5Q1F0U2tyM05iL0l1L3h5
+          dVh2cFpEelJadDZhOHJFWk42L2M4cmhxSzdnS01Mb2tGSXZ5UlBXejhEaHBsL3J4Tk0zOHRINHpV
+          TkhYRHF2ODVCVDA0bVE0ZXdEd1Y2Uk5scUg0aEpOWFEyT3JVdUhuSVVJcUdIRFdtNmpKT0RvRGJJ
+          Nyt2M0t3TWZpNU5PQ25nN2NCSTBETEw1NS94TlZybDNuV3Q4R3diaXFDVHplMUk3ZmZ5UHM2NWhy
+          c25iWUNPSkZHZ1JYSTNPUDhJem5iK0h3bVFlc3dTZUlTSVIxMG1nZ0NYNXdLeGpQb0FIaXA2WXpR
+          eWl1c1RmMCtab3RlRUtMZ2NySjFVbU1uK3psZGk4YSt4RkppblVLYkdVa1BzVHNrN1BSTFVLZmxX
+          UEpQekx4VFl2TWMrZzlvZGl2S0tnRDVnMFVSN0NnZVdNWnNSR280WFhZZlE3QWo2L05vM3FUK3lT
+          T3h3aGNycDUxampuMmNuWjFjQkhIL0lqUXJ2d3dDOXYzZXgrZVdoK0NpcTVHdDhKRUFCY2diY1g5
+          dzdTMlZsYkZqS2VPY2kzb3oza3RVU3lkNlpreWZKbFVQaHBpZnM9IHJvb3RAc3QtaGVhZC5zaS51
+          c3JjCg==
+        path: /root/.ssh/authorized_keys
+        encoding: base64
+  metadata:
+    instance-id: ochami-compute
+```
+Replace the `content` section with your pub key output.  
+We'll use this to build on going forward.
+
+The slurm configs are easy, we'll take advantage of Slurm's configless setting. Update the `write_files` section of `compute.yaml` to include
+```yaml
+- content: |
+    SLURMD_OPTIONS=--conf-server 172.16.0.254:6817
+  path: /etc/sysconfig/slurmd
+```
+
+Now let's do chrony, another pretty easy one. Update `write_files` again to include:
+```yaml
+- content: |
+    server 172.16.0.254 iburst
+    driftfile /var/lib/chrony/drift
+    makestep 1.0 3
+    rtcsync
+    keyfile /etc/chrony.keys
+    leapsectz right/UTC
+    logdir /var/log/chrony
+  path: /etc/chrony.conf
+```
+Now let's drop an `/etc/hosts` file on our nodes. There are better ways to do this probably but we'll keep it simple. Add the following to the `write_files` section and keep in mind the hostname of you head node:
+```yaml
+- content: |
+    172.16.0.254    demo-head
+    172.16.0.1      nid001    
+    172.16.0.2      nid002    
+    172.16.0.3      nid003    
+    172.16.0.4      nid004    
+    172.16.0.5      nid005    
+    172.16.0.6      nid006    
+    172.16.0.7      nid007    
+    172.16.0.8      nid008    
+    172.16.0.9      nid009    
+    172.16.0.101    nid-bmc001
+    172.16.0.102    nid-bmc002
+    172.16.0.103    nid-bmc003
+    172.16.0.104    nid-bmc004
+    172.16.0.105    nid-bmc005
+    172.16.0.106    nid-bmc006
+    172.16.0.107    nid-bmc007
+    172.16.0.108    nid-bmc008
+    172.16.0.109    nid-bmc009
+  path: /etc/hosts
+```
+Ok... we have all the files we need, let's add some commands to run post-boot. Add a section called `runcmd` on the same level as `write_files` under the `userdata` section with
+```yaml
+runcmd:
+  - setenforce 0
+  - systemctl stop firewalld
+  - systemctl restart chronyd
+```
+We're turning off selinux and the firewall, plus telling chrony to restart after it's config is dropped.
+
+The entire `compute.yaml` should look something like this:
+```yaml
+name: compute
+cloud-init:
+  userdata:
+    ssh_deletekeys: false
+    write_files:
+      - content: |
+          c3NoLXJzYSBBQUFBQjNOemFDMXljMkVBQUFBREFRQUJBQUFCZ1FDOHZ5SExCWEluY0JwN0o0WTc0
+          cXhJNGpSbFgvcFJ5RktyQkd5L2djYkFYKyt3eEF4Mlp3MHFEeHJMM2N5Q1F0U2tyM05iL0l1L3h5
+          dVh2cFpEelJadDZhOHJFWk42L2M4cmhxSzdnS01Mb2tGSXZ5UlBXejhEaHBsL3J4Tk0zOHRINHpV
+          TkhYRHF2ODVCVDA0bVE0ZXdEd1Y2Uk5scUg0aEpOWFEyT3JVdUhuSVVJcUdIRFdtNmpKT0RvRGJJ
+          Nyt2M0t3TWZpNU5PQ25nN2NCSTBETEw1NS94TlZybDNuV3Q4R3diaXFDVHplMUk3ZmZ5UHM2NWhy
+          c25iWUNPSkZHZ1JYSTNPUDhJem5iK0h3bVFlc3dTZUlTSVIxMG1nZ0NYNXdLeGpQb0FIaXA2WXpR
+          eWl1c1RmMCtab3RlRUtMZ2NySjFVbU1uK3psZGk4YSt4RkppblVLYkdVa1BzVHNrN1BSTFVLZmxX
+          UEpQekx4VFl2TWMrZzlvZGl2S0tnRDVnMFVSN0NnZVdNWnNSR280WFhZZlE3QWo2L05vM3FUK3lT
+          T3h3aGNycDUxampuMmNuWjFjQkhIL0lqUXJ2d3dDOXYzZXgrZVdoK0NpcTVHdDhKRUFCY2diY1g5
+          dzdTMlZsYkZqS2VPY2kzb3oza3RVU3lkNlpreWZKbFVQaHBpZnM9IHJvb3RAc3QtaGVhZC5zaS51
+          c3JjCg==
+        path: /root/.ssh/authorized_keys
+        encoding: base64
+      - content: |
+          SLURMD_OPTIONS=--conf-server 172.16.0.254:6817
+        path: /etc/sysconfig/slurmd
+      - content: |
+          server 172.16.0.254 iburst
+          driftfile /var/lib/chrony/drift
+          makestep 1.0 3
+          rtcsync
+          keyfile /etc/chrony.keys
+          leapsectz right/UTC
+          logdir /var/log/chrony
+        path: /etc/chrony.conf
+      - content: |
+          172.16.0.254    demo-head
+          172.16.0.1      nid001
+          172.16.0.2      nid002
+          172.16.0.3      nid003
+          172.16.0.4      nid004
+          172.16.0.5      nid005
+          172.16.0.6      nid006
+          172.16.0.7      nid007
+          172.16.0.8      nid008
+          172.16.0.9      nid009
+          172.16.0.101    nid-bmc001
+          172.16.0.102    nid-bmc002
+          172.16.0.103    nid-bmc003
+          172.16.0.104    nid-bmc004
+          172.16.0.105    nid-bmc005
+          172.16.0.106    nid-bmc006
+          172.16.0.107    nid-bmc007
+          172.16.0.108    nid-bmc008
+          172.16.0.109    nid-bmc009
+        path: /etc/hosts
+    runcmd:
+      - setenforce 0
+      - systemctl stop firewalld
+      - systemctl restart chronyd
+  metadata:
+    instance-id: ochami-compute
+```
+### Secure cloud-init
+Now let's update our secure stuff. We already have a munge key from before and it should look something like
+```yaml
+name: compute
+cloud-init:
+  userdata:
+    ssh_deletekeys: false
+    write_files:
+      - content: |
+          w7MwDvqASzXqq8pRk2K4Vd8Hs0/sdyEMs4S0BHn1AOU6PAkXSRO3dnomOLX+15IIR7DFzGyUpyBS
+          EZN1mG2tB8aeosVGn8MZ9uLtYrQT4Nbb1aiPvpxEuZsFcrzGogS+TRs8NmbC4HMyUwJtxFpw5Q==
+        path: /etc/munge/munge.key
+        permission: '0400'
+        owner: 'munge:munge'
+        encoding: base64
+  metadata:
+    instance-id: ochami-compute-secure
+```
+All we need to update here is adding `runcmd` to start munge and slurmd. These are here because the config files are dropped in a pervious step but munge and slurmd require the `munge.key` which isn't in place until the second cloud-init has run.  
+Add this to `userdata` section
+```yaml
+runcmd:
+  - systemctl start munge
+  - systemctl start slurmd
+```
+
+Now let's apply these new configs
+```bash
+ochami-cli cloud-init --update-ci-data --payload compute.yaml
+ochami-cli cloud-init --update-ci-data --secure --payload compute-secure.yaml
+```
+The next time you reboot the nodes slurm should (hopefully) be working!
 
 ## The Rest...
 Now you know how to 
@@ -1089,6 +1293,5 @@ Now you know how to
 What else would you need to make this a system that can run jobs?
 
 - accounts? on the compute?
-- slurm? slurmctld?
 - some kind of PE?
 - what about network mounted filesystems?
