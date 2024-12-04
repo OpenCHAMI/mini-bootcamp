@@ -200,9 +200,9 @@ Here will have to make some local changes that match your system
 The inventory is a single node so just change `inventory/01-ochami` and set
 ```ini
 [ochami]
-st-head.si.usrc
+demo-head.si.usrc
 ```
-To be the value of `hostname` (st-head.si.usrc in this case).  
+To be the value of `hostname` (demo-head.si.usrc in this case).
 
 ### Set cluster names
 Pick a cluster name and shortname. These examples use `demo` and `nid` respectively.  
