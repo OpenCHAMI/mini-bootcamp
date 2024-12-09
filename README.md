@@ -365,71 +365,106 @@ name: compute
 ```
 We only setup authorized keys on the computes for now. 
 
-### Building a test image
-We'll build a test image real quick to boot into. Won't be anything special.
+### Create a test image to boot on compute nodes
 
-First install `buildah`
-```bash
-dnf install -y buildah
-```
-Create a blank container
-```bash
-CNAME=$(buildah from scratch)
-```
-Mount it 
-```bash
-MNAME=$(buildah mount $CNAME)
-```
-Install some base packages
-```bash
-dnf groupinstall -y --installroot=$MNAME --releasever=8 "Minimal Install"
-```
-Install the kernel and some need dracut stuff:
-```bash
-dnf install -y --installroot=$MNAME kernel dracut-live fuse-overlayfs cloud-init
-```
-Then rebuld the initrd so that during dracut it will download the image and mount the rootfs as an in memory overlay
-```bash
-buildah run --tty $CNAME bash -c ' \
-    dracut \
-    --add "dmsquash-live livenet network-manager" \
-    --kver $(basename /lib/modules/*) \
-    -N \
-    -f \
-    --logfile /tmp/dracut.log 2>/dev/null \
-    '
-```
-Then commit it
-```bash
-buildah commit $CNAME test-image:v1
-```
-While we're here we'll get the initrd, vmlinuz, and build a rootfs to boot from. 
-We have a container that holds all three of these items we just need to pull them out. 
+Using `buildah`, it is pretty simple to create a bootable system image that we can share.  When you're done, you'll have three artifacts that you can share out with http, nfs, or any other means that works well for your site.  We'll use http today.
 
-Setup a directory to store these. We'll use an nginx container to serve these out later on.
+* __initrd__ - An initrd with dracut modules for live boot of a remote squashfs filesystem
+* __rootfs__ - A root filesystem in squashfs format
+* __kernel__ - A small kernel for demonstration purposes
+
+
+
+#### Install build tools
+
+Before we begin building the images, make sure you have the right tools installed.
 ```bash
-mkdir -p /data/domain-images/openchami/rocky/test
+dnf install -y buildah passt
 ```
 
-Get the kernel version of the image
-```bash
-KVER=$(ls $MNAME/lib/modules)
-```
-If you have more than one kernel installed then something went very wrong
+| Buildah can do everything below as either root or as a normal user.  If you run these commands as a normal user, you'll need to run `buildah unshare` first in order to get a clean environment for handling root-level actions inside the container without needing to be root.  `passt` allows for networks in a rootless environment.  You can read more about rootless mode and the unshare command at[the Red Hat Blog](https://www.redhat.com/en/blog/buildah-unshare-command).
 
-Get the initrd and vmlinuz
-```bash
-cp $MNAME/boot/initramfs-$KVER.img /data/domain-images/openchami/rocky/test
-chmod o+r /data/domain-images/openchami/rocky/test/initramfs-$KVER.img
-cp $MNAME/boot/vmlinuz-$KVER /data/domain-images/openchami/rocky/test
-```
+#### Build the kernel, initrd, and rootfs
 
-Now let's make a squashfs of the rootfs
-```bash
-mksquashfs $MNAME /data/domain-images/openchami/rocky/test/rootfs-$KVER -noappend -no-progress
-```
+1. Create a blank container
+   ```bash
+   CNAME=$(buildah from scratch)
+   ```
+   `$CNAME` now contains the name of our working container
 
-After all this you should have something that looks like so
+1. Mount it 
+   ```bash
+   MNAME=$(buildah mount $CNAME)
+   ```
+   `$MNAME` now contains the mounted directory of the container we'll be changing.
+   If you're familiar with chroot environments for building system images, you can think of `$MNAME` as the equivalent
+
+1. Install some base packages
+   ```bash
+   dnf groupinstall -y --installroot=$MNAME --releasever=8 "Minimal Install"
+   ```
+
+1. Install the kernel and some need dracut stuff:
+   ```bash
+   dnf install -y --installroot=$MNAME kernel dracut-live fuse-overlayfs cloud-init nfs-utils ssh
+   ```
+
+1. We need dracut to include a few kernel modules.
+   ```bash
+   mkdir -p $MNAME/etc/dracut.conf.d
+   echo 'add_drivers+=" overlay "' | tee $MNAME/etc/dracut.conf.d/overlay.conf
+   echo 'add_drivers+=" brd "' | tee $MNAME/etc/dracut.conf.d/brd.conf
+   ```
+
+1. Commit the changes to the container.
+   ```bash
+   buildah commit $CNAME test-image:v1
+   ```
+   For future changes, instead of `buildah from scratch`, you can start with this image. `buildah from test-image:v1`
+
+1. Rebuild the initrd so that during dracut it will download the image and mount the rootfs as an in memory overlay
+   ```bash
+   buildah run --tty $CNAME bash -c ' \
+     dracut \
+     --add "dmsquash-live-autooverlay dmsquash-live squash livenet network-manager nfs" \
+     --kver $(basename /lib/modules/*) \
+     -N \
+     -f \
+     '
+   ```
+
+1. Pull the boot artifacts from the container
+   The container we just built has the artifacts we need in the `/boot` directory.  The container filesystem is still mounted at `$MNAME` for us to copy from.
+
+   1. Setup a directory to store these. We'll use an nginx container to serve these out later on.
+      ```bash
+      OUTPUT_DIR=/data/domain-images/openchami/rocky/test
+      mkdir -p $OUTPUT_DIR
+      ```
+
+   1. Get the kernel version of the image
+      ```bash
+      KVER=$(ls $MNAME/lib/modules)
+      ```
+      If you have more than one kernel installed then something went very wrong
+
+   1. Get the initrd and vmlinuz
+      ```bash
+      cp $MNAME/boot/initramfs-$KVER.img $OUTPUT_DIR
+      chmod o+r $OUTPUT_DIR/initramfs-$KVER.img
+      cp $MNAME/boot/vmlinuz-$KVER $OUTPUT_DIR
+      ```
+
+1. Make a squashfs of the rootfs
+   ```bash
+   mksquashfs $MNAME $OUTPUT_DIR/rootfs-$KVER.squashfs -noappend -no-progress
+   ```
+
+#### Check your artifacts
+
+After all this you should have the three artifacts mentioned at the beginning of this step.
+
+
 ```bash
 [root@st-head ~]# ls -l /data/domain-images/openchami/rocky/test/
 total 1244104
@@ -437,13 +472,17 @@ total 1244104
 -rw-r--r-- 1 root root 1160933376 Oct 16 09:07 rootfs-4.18.0-553.22.1.el8_10.x86_64
 -rwxr-xr-x 1 root root   10881352 Oct 16 09:04 vmlinuz-4.18.0-553.22.1.el8_10.x86_64
 ```
-We'll use these later. 
+
+#### Clean up your build environment
 
 Clean up the container stuff
 ```bash
 buildah umount $CNAME
 buildah rm $CNAME
 ```
+
+## Configure the microservices
+
 ### Configure BSS
 We need to update BSS to use this image.  
 Modify `inventory/group_vars/ochami/bss.yaml` and set
