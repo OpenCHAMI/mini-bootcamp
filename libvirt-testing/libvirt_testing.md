@@ -50,18 +50,19 @@ curl -O http://192.168.13.3/vmlinuz-5.14.0-503.15.1.el9_5.x86_64
 sudo virt-install   --name ipxe-test   --memory 4096   --vcpus 1   --disk none   --pxe   --os-variant generic   --network network:pxe-test-net,model=virtio   --boot network,hd  --nographics --tpm backend.type=emulator,backend.version=2.0,model=tpm-tis
 ```
 
+### Useful to destroy and undefine for iterations
 ```bash
 sudo virsh destroy ipxe-test && sudo virsh undefine ipxe-test
 ```
 
+## Image Build Script
 
+```bash
 CNAME=$(buildah from scratch)
 MNAME=$(buildah mount $CNAME)
 
 dnf groupinstall -y --installroot=$MNAME --releasever=9 "Minimal Install"
 dnf install -y --installroot=$MNAME kernel dracut-live fuse-overlayfs cloud-init nfs-utils kernel-modules
-
-
 
 buildah run --tty $CNAME bash -c ' \
      dracut \
@@ -80,9 +81,6 @@ chmod o+r $OUTPUT_DIR/initramfs-$KVER.img
 cp $MNAME/boot/vmlinuz-$KVER $OUTPUT_DIR
 mksquashfs $MNAME $OUTPUT_DIR/rootfs-$KVER.squashfs -noappend -no-progress
 
-
-
-
 cat <<EOF > $OUTPUT_DIR/boot.ipxe
 #!ipxe
 
@@ -90,13 +88,12 @@ cat <<EOF > $OUTPUT_DIR/boot.ipxe
 set base-url http://192.168.13.3:8080
 
 # Set the kernel and initrd filenames
-set kernel vmlinuz-5.14.0-503.15.1.el9_5.x86_64
-set initrd initramfs-5.14.0-503.15.1.el9_5.x86_64.img
-set rootfs rootfs-5.14.0-503.15.1.el9_5.x86_64.squashfs
+set kernel vmlinuz-$KVER
+set initrd initramfs-$KVER.img
+set rootfs rootfs-$KVER.squashfs
 
 # Download the kernel
-kernel $\{base-url}/$\{kernel} initrd=$\{initrd} root=live:$\{base-url}/$\{rootfs}  overlayroot=tmpfs,size=2G ro console=ttyS0,115200 rd.driver.pre=overlay rd.dr
-iver.pre=brd cloud-init=enabled ds=nocloud-net;s=$\{base-url} vm.overcommit_memory=1 selinux=0
+kernel $\{base-url}/$\{kernel} initrd=$\{initrd} root=live:$\{base-url}/$\{rootfs}  overlayroot=tmpfs,size=1G ro console=ttyS0,115200 rd.driver.pre=overlay rd.driver.pre=brd cloud-init=enabled ds=nocloud-net;s=${base-url} vm.overcommit_memory=1 selinux=0
 
 # Download the initrd
 initrd $\{base-url}/$\{initrd}
@@ -104,19 +101,7 @@ initrd $\{base-url}/$\{initrd}
 # Boot the downloaded kernel and initrd
 boot
 EOF
-
-
-## Not Needed?
-
-mkdir -p $MNAME/etc/dracut.conf.d
-echo 'add_drivers+=" overlay "' | tee $MNAME/etc/dracut.conf.d/overlay.conf
-echo 'add_drivers+=" brd "' | tee $MNAME/etc/dracut.conf.d/brd.conf
-mkdir -p $MNAME/usr/lib/dracut/hooks/pre-udev
-echo '#!/bin/bash
-modprobe overlay
-modprobe brd
-' > $MNAME/usr/lib/dracut/hooks/pre-udev/30-load-modules.sh
-chmod +x $MNAME/usr/lib/dracut/hooks/pre-udev/30-load-modules.sh
+```
 
 ## Cloud-Init Notes
 
