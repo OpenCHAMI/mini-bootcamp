@@ -1,0 +1,7 @@
+#cloud-config
+
+packages:
+  - dmidecode
+  - tpm2-tools
+  - tpm2-abrmd
+  - tpm2-tss

@@ -47,9 +47,12 @@ curl -O http://192.168.13.3/vmlinuz-5.14.0-503.15.1.el9_5.x86_64
 ## Create and boot the VM
 
 ```bash
-sudo virt-install   --name ipxe-test   --memory 2048   --vcpus 1   --disk none   --pxe   --os-variant generic   --network network:pxe-test-net,model=virtio   --boot network,hd  --nographics
+sudo virt-install   --name ipxe-test   --memory 4096   --vcpus 1   --disk none   --pxe   --os-variant generic   --network network:pxe-test-net,model=virtio   --boot network,hd  --nographics --tpm backend.type=emulator,backend.version=2.0,model=tpm-tis
 ```
 
+```bash
+sudo virsh destroy ipxe-test && sudo virsh undefine ipxe-test
+```
 
 
 CNAME=$(buildah from scratch)
@@ -87,15 +90,16 @@ cat <<EOF > $OUTPUT_DIR/boot.ipxe
 set base-url http://192.168.13.3:8080
 
 # Set the kernel and initrd filenames
-set kernel vmlinuz-$KVER
-set initrd initramfs-$KVER.img
-set rootfs rootfs-$KVER.squashfs
+set kernel vmlinuz-5.14.0-503.15.1.el9_5.x86_64
+set initrd initramfs-5.14.0-503.15.1.el9_5.x86_64.img
+set rootfs rootfs-5.14.0-503.15.1.el9_5.x86_64.squashfs
 
 # Download the kernel
-kernel ${base-url}/${kernel} initrd=${initrd} root=live:http://192.168.13.3:8080/${rootfs}  overlayroot=tmpfs ro console=ttyS0,115200 rd.driver.pre=overlay rd.driver.pre=brd cloud-init=enabled ds=nocloud-net seedfrom=http://192.168.13.17/cloud-init/
+kernel $\{base-url}/$\{kernel} initrd=$\{initrd} root=live:$\{base-url}/$\{rootfs}  overlayroot=tmpfs,size=2G ro console=ttyS0,115200 rd.driver.pre=overlay rd.dr
+iver.pre=brd cloud-init=enabled ds=nocloud-net;s=$\{base-url} vm.overcommit_memory=1 selinux=0
 
 # Download the initrd
-initrd \${base-url}/\${initrd}
+initrd $\{base-url}/$\{initrd}
 
 # Boot the downloaded kernel and initrd
 boot
@@ -113,3 +117,18 @@ modprobe overlay
 modprobe brd
 ' > $MNAME/usr/lib/dracut/hooks/pre-udev/30-load-modules.sh
 chmod +x $MNAME/usr/lib/dracut/hooks/pre-udev/30-load-modules.sh
+
+## Cloud-Init Notes
+
+the nocloud client will request `meta-data` first.
+if it succeeds, it will attempt `user-data` second.
+if it succeeds, it will attempt `vendor-data`
+
+When the same user is defined in both the user-data and the vendor-data in cloud-init, the user-data takes precedence. This behavior aligns with the principle that user-supplied configurations (like user-data) should override vendor defaults (like vendor-data).
+
+vendor-data can contain a #include file which will subsequently download all the urls in it.
+
+a single vendor-data (or user-data) can't have both #include and #cloud-config in the same file
+
+Jinja templating can be used, but only in #cloud-config files if they have #template: jinja before the #cloud-config line
+

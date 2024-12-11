@@ -1,0 +1,23 @@
+#!ipxe
+
+# Define the HTTP location where kernel and initrd are hosted
+set base-url http://192.168.13.3:8080
+
+# Set the kernel and initrd filenames
+set kernel vmlinuz-5.14.0-503.15.1.el9_5.x86_64
+set initrd initramfs-5.14.0-503.15.1.el9_5.x86_64.img
+set rootfs rootfs-5.14.0-503.15.1.el9_5.x86_64.squashfs
+
+# Download the kernel
+kernel ${base-url}/${kernel} initrd=${initrd} root=live:${base-url}/${rootfs}  overlayroot=tmpfs,size=1G ro console=ttyS0,115200 rd.driver.pre=overlay rd.dr
+iver.pre=brd cloud-init=enabled ds=nocloud-net;s=${base-url} vm.overcommit_memory=1 selinux=0
+
+# cloud-init.debug systemd.log_level=debug systemd.log_target=console
+# sudo virt-install   --name ipxe-test   --memory 4096   --vcpus 1   --disk none   --pxe   --os-variant generic   --network network:pxe-test-net,model=virti
+o   --boot network,hd  --nographics --tpm backend.type=emulator,backend.version=2.0,model=tpm-tis
+
+# Download the initrd
+initrd ${base-url}/${initrd}
+
+# Boot the downloaded kernel and initrd
+boot

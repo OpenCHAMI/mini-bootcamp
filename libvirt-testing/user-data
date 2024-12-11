@@ -1,0 +1,35 @@
+#cloud-config
+users:
+  - name: root
+    lock_passwd: false
+    passwd: "$6$IIUMs.4puvwJ7Yv1$9H81v9GzvnMmzhdLGFPt0RYpph4oX/cXTsvadE4wXc57IKuLHlN5LhoEf7vkvGAHP7JKKFOJUpmgvLUGMCeKz/"
+    ssh_authorized_keys:
+      - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDhVqewcj1NwUW7TG9DRY0YnR7BNTovQ2IqiPGgwimdq5s5EU+X2K6JjUpirHayxX4S5KOfp7eFgV3fMo/Wdb+Kq7LJjDEWltLM0xtM8JeCnjVc
+a0SKMBraYgqjtmOSipGQ+j7IiwJ+YGIeQA7/rs0o2V5RJThJKYeXgDkHrmwoGumIiGdVeoKAyw2CJS7V6/ISZX8JAsXrIBSfLTcEvQOaiFveOIRAsEhciB1bD4jOFv14iMwiQac36/EncVlxInkFbWznH3G0
++uVapy/fKvbTAOZixLqUjEW5EQqmuOTowB6J/Lro8VV29s5r3wvfPp0dGltIGP3TyJvbWiOetPXZWGnvKfnJcZkJAfoXfIhX1L0y9nROSfGjzaXagIjdXFwvgyXq1MM2+QMjqa5oZdJFC0sWEI55qVmIgJ7I
+VtU1rWX/wsGQLdQ9MDL+s+FsOei4JIhRm5aS5JoIBJVVmavd50RfesTYGCmD8qAw07t5UaDs6AexYT0gsJwHc0Xy/Ak=
+    shell: /bin/bash
+
+  - name: ochami
+    gecos: "OpenCHAMI User"
+    groups: sudo
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    lock_passwd: false
+    passwd: "$6$IIUMs.4puvwJ7Yv1$9H81v9GzvnMmzhdLGFPt0RYpph4oX/cXTsvadE4wXc57IKuLHlN5LhoEf7vkvGAHP7JKKFOJUpmgvLUGMCeKz/"
+    ssh_authorized_keys:
+      - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDhVqewcj1NwUW7TG9DRY0YnR7BNTovQ2IqiPGgwimdq5s5EU+X2K6JjUpirHayxX4S5KOfp7eFgV3fMo/Wdb+Kq7LJjDEWltLM0xtM8JeCnjVc
+a0SKMBraYgqjtmOSipGQ+j7IiwJ+YGIeQA7/rs0o2V5RJThJKYeXgDkHrmwoGumIiGdVeoKAyw2CJS7V6/ISZX8JAsXrIBSfLTcEvQOaiFveOIRAsEhciB1bD4jOFv14iMwiQac36/EncVlxInkFbWznH3G0
++uVapy/fKvbTAOZixLqUjEW5EQqmuOTowB6J/Lro8VV29s5r3wvfPp0dGltIGP3TyJvbWiOetPXZWGnvKfnJcZkJAfoXfIhX1L0y9nROSfGjzaXagIjdXFwvgyXq1MM2+QMjqa5oZdJFC0sWEI55qVmIgJ7I
+VtU1rWX/wsGQLdQ9MDL+s+FsOei4JIhRm5aS5JoIBJVVmavd50RfesTYGCmD8qAw07t5UaDs6AexYT0gsJwHc0Xy/Ak=
+    shell: /bin/bash
+
+write_files:
+  - path: /etc/ssh/sshd_config
+    content: |
+      PermitRootLogin yes
+      PasswordAuthentication yes
+      PubkeyAuthentication yes
+      AuthorizedKeysFile .ssh/authorized_keys
+
+runcmd:
+  - systemctl reload sshd

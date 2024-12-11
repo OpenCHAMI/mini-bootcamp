@@ -1,0 +1,21 @@
+instance-id: my-instance-id
+local-hostname: my-local-hostname
+hostname: my-hostname
+
+v1:
+  cloud_name: "ochami"
+  availability_zone: "us-east-1"
+  instance_id: "foo"
+  local_hostname: "ochami-compute-local"
+  region: "us-east"
+  hostname: "ochami-compute"
+  cloud_provider: "lanl"
+  vendor_data:
+    version: 1.0
+    groups:
+      - compute
+      - login
+    metadata:
+      - key: value
+    attributes:
+      - attribute_name: attribute_value
