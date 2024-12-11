@@ -248,26 +248,48 @@ Make a script `gen_nodes_file.sh` (and you guys are gonna be so impressed)
 #!/bin/bash
 nid=1
 SN=${SN:-nid}
+if [ -z "$rf_pass" ]
+then
+        >&2 echo 'ERROR: rf_pass not set, needed for BMC credentials'
+        exit 1
+fi
 echo "nodes:"
 for i in {1..9}
 do
-	NDATA=$(curl -sk -u $rf_pass https://172.16.0.10${i}:443/redfish/v1/Chassis/FCP_Baseboard/NetworkAdapters/Nic259/NetworkPorts/NICChannel0)
-	if [[ $? -ne 0 ]]
-	then
-		>&2 echo "172.16.0.10${i} unreachable, generating a random MAC"
-		RMAC=$(printf '02:00:00:%02X:%02X:%02X\n' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)))
-		NDATA="{\"AssociatedNetworkAddresses\": [\"$RMAC\"]}"
-	fi
-	MAC=$(echo $NDATA | jq -r '.AssociatedNetworkAddresses|.[]')
-	echo "- bmc_ipaddr: 172.16.0.10${i}
-  ipaddr: 172.16.0.${i}
-  mac: ${MAC}
-  nid: ${nid}
-  xname: x1000c1s7b${i}n0
-  group: compute
-  name: ${SN}00${i}"
+        # NIC MAC Address
+        NDATA=$(curl -sk -u "$rf_pass" https://172.16.0.10${i}/redfish/v1/Chassis/FCP_Baseboard/NetworkAdapters/Nic259/NetworkPorts/NICChannel0)
+        if [[ $? -ne 0 ]]
+        then
+                >&2 echo "172.16.0.10${i} unreachable, generating a random MAC"
+                NRMAC=$(printf '02:00:00:%02x:%02x:%02x\n' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)))
+                NDATA="{\"AssociatedNetworkAddresses\": [\"$NRMAC\"]}"
+        fi
+        NIC_MAC=$(echo $NDATA | jq -r '.AssociatedNetworkAddresses|.[]')
 
-  	nid=$((nid+1))
+        # BMC MAC Address
+        BDATA=$(curl -sk -u "$rf_pass" https://172.16.0.10${i}/redfish/v1/Managers/bmc/EthernetInterfaces/eth0)
+        if [[ $? -ne 0 ]]
+        then
+                >&2 echo "Could not find BMC MAC address for for node with IP 172.16.0.${i}, generating a random one"
+                BRMAC=$(printf '02:00:00:%02x:%02x:%02x\n' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)))
+                BDATA="{\"MACAddress\": \"$BRMAC\"}"
+        fi
+        BMC_MAC=$(echo $BDATA | jq .MACAddress | tr -d '"')
+
+        # Print node config
+        echo "- name: ${SN}00${i}
+  xname: x1000c1s7b${i}n0
+  nid: ${nid}
+  group: compute
+  bmc_mac: ${BMC_MAC}
+  bmc_ip: 172.16.0.10${i}
+  interfaces:
+  - mac_addr: ${NIC_MAC}
+    ip_addrs:
+    - name: management
+      ip_addr: 172.16.0.${i}"
+
+        nid=$((nid+1))
 done
 ```
 Set the follow variables
@@ -291,14 +313,13 @@ ansible-playbook -l $HOSTNAME -c local -i inventory ochami_playbook.yaml
 Should take a minute or two to start everything and populate the services.  
 At the end you should have these containers running:
 ```bash
-# podman ps | awk '{print $NF}' | sort
+# podman ps --noheading | awk '{print $NF}' | sort
 bss
 cloud-init-server
 coresmd
 haproxy
 hydra
 image-server
-NAMES
 opaal
 opaal-idp
 postgres
@@ -323,45 +344,158 @@ systemctl restart haproxy
 ```
 This would go great in a cron job.
 
-Generate an ACCESS_TOKEN. This is used in the rest of the commands
-```bash
-export ACCESS_TOKEN=$(gen_access_token)
+We are going to use `ochami` as a CLI tool to interact with the OpenCHAMI
+services. We can get the latest RPM from GitHub:
 ```
-We're going to interact with the OpenCHAMI services using `ochami-cli`.  
-It's not super great but it functions. 
-```bash
-ochami-cli --help
+latest_release_url=$(curl -s https://api.github.com/repos/OpenCHAMI/ochami/releases/latest | jq -r '.assets[] | select(.name | endswith("amd64.rpm")) | .browser_download_url')
+curl -L "${latest_release_url}" -o ochami.rpm
+```
+Now, we can install it:
+```
+dnf install -y ./ochami.rpm
+```
+Make sure it works:
+```
+ochami --help
 ```
 
-Check SMD is populated with `ochami-cli smd --get-components`
-```bash
-BMC:  x1000c1s7b[0-8]
-Compute:  x1000c1s7b[0-8]n0
+This tool comes with manual pages. See **ochami**(1) for more.
+
+Now, we will need to generate a config file for `ochami`. Generate a system-wide
+config file by running (press **y** to confirm creation):
+```
+ochami config --system cluster set --default --base-uri https://demo.openchami.cluster:8443 demo
+```
+This creates a cluster called "demo", sets its base URI, and sets it as the
+default cluster (i.e. the cluster to use when none is specified when running
+`ochami`). `ochami` appends the paths for the services and endpoints it
+communicates with to the base URI.
+
+Let's also change the logging format to be a nicer format other than JSON:
+```
+ochami config --system set log.format basic
+```
+Let's take a look at our config to make sure things are set correctly:
+```
+ochami config show
+```
+It should look like this:
+```yaml
+log:
+    format: basic
+    level: warning
+default-cluster: demo
+clusters:
+    - name: demo
+      cluster:
+        base-uri: https://demo.openchami.cluster:8443
 ```
 
-Check BSS is populated with `ochami-cli bss --get-bootparams`
+Now, we need to generate a token for the "demo" cluster. `ochami` reads this
+from `<CLUSTER_NAME>_ACCESS_TOKEN` where `<CLUSTER_NAME>` is the configured name
+of the cluster in all capitals. This is `DEMO` in our case. Let's set the token:
 ```bash
-nodes: nid[1-9]
-kernel:  http://172.16.0.254:8080/openchami/rocky/v1/vmlinuz-4.18.0-553.22.1.el8_10.x86_64
-initrd:  http://172.16.0.254:8080/openchami/rocky/v1/initramfs-4.18.0-553.22.1.el8_10.x86_64.img
-params:  root=live:http://172.16.0.254:8080/openchami/rocky/v1/rootfs-4.18.0-553.22.1.el8_10.x86_64 ochami_ci_url=http://172.16.0.254:8081/cloud-init/ ochami_ci_url_secure=http://172.16.0.254:8081/cloud-init-secure/ overlayroot=tmpfs overlayroot_cfgdisk=disabled nomodeset ro ip=dhcp apparmor=0 selinux=0 console=ttyS0,115200 ip6=off network-config=disabled rd.shell
+export DEMO_ACCESS_TOKEN=$(gen_access_token)
+```
+
+Check SMD is populated with `ochami smd component get | jq`
+```json
+{
+  "Components": [
+    {
+      "Enabled": true,
+      "ID": "x1000c1s7b1",
+      "Type": "Node"
+    },
+    {
+      "Enabled": true,
+      "Flag": "OK",
+      "ID": "x1000c1s7b1n0",
+      "NID": 1,
+      "Role": "Compute",
+      "State": "On",
+      "Type": "Node"
+    },
+    {
+      "Enabled": true,
+      "ID": "x1000c1s7b2",
+      "Type": "Node"
+    },
+    {
+      "Enabled": true,
+      "Flag": "OK",
+      "ID": "x1000c1s7b2n0",
+      "NID": 2,
+      "Role": "Compute",
+      "State": "On",
+      "Type": "Node"
+    },
+    ...
+]
+```
+You should see:
+```json
+    {
+      "Enabled": true,
+      "ID": "x1000c1s7bN",
+      "Type": "Node"
+    },
+    {
+      "Enabled": true,
+      "Flag": "OK",
+      "ID": "x1000c1s7bNn0",
+      "NID": 1,
+      "Role": "Compute",
+      "State": "On",
+      "Type": "Node"
+    },
+```
+for each `N` (in the xname) from 1-9, inclusive.
+
+Check BSS is populated with `ochami bss boot params get | jq`
+```json
+[
+  {
+    "cloud-init": {
+      "meta-data": null,
+      "phone-home": {
+        "fqdn": "",
+        "hostname": "",
+        "instance_id": "",
+        "pub_key_dsa": "",
+        "pub_key_ecdsa": "",
+        "pub_key_rsa": ""
+      },
+      "user-data": null
+    },
+    "initrd": "http://172.16.0.254:8080/openchami/compute-slurm/latest/initramfs-4.18.0-553.27.1.el8_10.x86_64.img",
+    "kernel": "http://172.16.0.254:8080/openchami/compute-slurm/latest/vmlinuz-4.18.0-553.27.1.el8_10.x86_64",
+    "macs": [
+      "ec:e7:a7:05:a1:fc",
+      "ec:e7:a7:05:a2:28",
+      "ec:e7:a7:05:93:84",
+      "ec:e7:a7:02:d9:90",
+      "02:00:00:a8:4f:04",
+      "ec:e7:a7:05:96:74",
+      "02:00:00:97:c4:2e",
+      "ec:e7:a7:05:93:48",
+      "ec:e7:a7:05:9f:50"
+    ],
+    "params": "root=live:http://172.16.0.254:8080/openchami/compute-slurm/latest/rootfs-4.18.0-553.27.1.el8_10.x86_64 ochami_ci_url=http://172.16.0.254:8081/cloud-init/ ochami_ci_url_secure=http://172.16.0.254:8081/cloud-init-secure/ overlayroot=tmpfs overlayroot_cfgdisk=disabled nomodeset ro ip=dhcp apparmor=0 selinux=0 console=ttyS0,115200 ip6=off network-config=disabled rd.shell"
+  }
+]
 ```
 We'll have to update these values later when we build a test image. But for now we can see that it is at least working...
 
-Check cloud-init is populated with `ochami-cli cloud-init --get-ci-data --name compute`
+Check cloud-init is populated with `ochami cloud-init data get compute`
 ```yaml
-cloud-init:
-  metadata:
-    instance-id: test
-  userdata:
-    runcmd:
-    - setenforce 0
-    - systemctl disable firewalld
-    write_files:
-    - content: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDZW66ja<snip> = root@st-head'
-      path: /root/.ssh/authorized_keys
-  vendordata: {}
-name: compute
+#cloud-config
+runcmd:
+- setenforce 0
+- systemctl disable firewalld
+write_files:
+- content: ssh-rsa AAAAB3Nz<snip> root@st-head.si.usrc
+  path: /root/.ssh/authorized_keys
 ```
 We only setup authorized keys on the computes for now. 
 
@@ -459,7 +593,7 @@ ansible-playbook -l $HOSTNAME -c local -i inventory -t bss ochami_playbook.yaml
 ```
 You can check to make sure it got set correctly with
 ```bash
-ochami-cli bss --get-bootparams
+ochami bss boot params get | jq
 ```
 
 ## Booting nodes
@@ -478,7 +612,7 @@ Run all these in separate windows...
 
 Watch incoming DHCP requests. 
 ```bash
-podman logs -f dnsmasq
+podman logs -f coresmd
 ```
 
 Check BSS requests.
@@ -497,17 +631,29 @@ Now we can dive into things and get a better picture of what is going on
 
 ### SMD
 We haven't really poked at SMD yet. There are a lot of endpoints but we are only really using these:
+
+| **Endpoint**                  | **`ochami` Command**   |
+| ----------------------------- | ---------------------- |
+| /State/Components             | `ochami smd component` |
+| /Inventory/ComponentEndpoints | `ochami smd compep`    |
+| /Inventory/RedfishEndpoints   | `ochami smd rfe`       |
+| /Inventory/EthernetInterfaces | `ochami smd iface`     |
+| /groups                       | `ochami smd group`     |
+
+As shown in the table, the `ochami` command can be used to deal with these
+endpoints directly. Feel free to play around with it. For those that want to dig
+around using `curl`, you'll need the `DEMO_ACCESS_TOKEN` we created earlier. If
+it expired, regenerate it with:
+```bash
+export DEMO_ACCESS_TOKEN=$(gen_access_token)
 ```
-/State/Components
-/Inventory/ComponentEndpoints
-/Inventory/RedfishEndpoints
-/Inventory/EthernetInterfaces
-/groups
-```
-You'll need an `ACCESS_TOKEN` to hit some of these endpoints (`export ACCESS_TOKEN=$(gen_access_token)`)
 `SMD_URL` should be set already but confirm with `echo $SMD_URL`
 
-You can `curl -sH "Authorization: Bearer $ACCESS_TOKEN" $SMD_URL/<endpoint>` and see all the fun data. 
+You can use:
+```bash
+curl -sH "Authorization: Bearer $DEMO_ACCESS_TOKEN" $SMD_URL/<endpoint>
+```
+to see all the fun data.
 
 - The `/State/Componets` holds all the Components. You should see your nodes and BMCs here. The xnames are pointless in this context but SMD REQUIRES THEM. I hate it.  
 - `/Inventory/ComponentEndpoints` is an intermediary endpoint. You don't directly interact with this endpoint.  
@@ -518,13 +664,16 @@ You can `curl -sH "Authorization: Bearer $ACCESS_TOKEN" $SMD_URL/<endpoint>` and
 ### BSS
 BSS only has two endpoints we care about.
 
-You'll need an `ACCESS_TOKEN` for one of these and `BSS_URL` will need to be set.
-```
-/bootparameters
-/bootscripts
-```
-- `/bootparameters` will require a token, but running `curl -sH "Authorization: Bearer $ACCESS_TOKEN" $BSS_URL/bootparameters` should show you all your bootparams with the associated MACs.
-- `/bootscripts` can be accessed via HTTP (so nodes can get things during iPXE) and doesn't require a token. But you'll need to pick a valid MAC (pick one from the previous command output).
+| **Endpoint**    | **`ochami` Command**     |
+| --------------- | ------------------------ |
+| /bootparameters | `ochami bss boot params` |
+| /bootscript     | `ochami bss boot script` |
+
+You'll need `DEMO_ACCESS_TOKEN` for one of these and `BSS_URL` will need to be
+set (which it should be already).
+
+- `/bootparameters` will require a token, but running `curl -sH "Authorization: Bearer $DEMO_ACCESS_TOKEN" $BSS_URL/bootparameters` should show you all your bootparams with the associated MACs.
+- `/bootscript` can be accessed via HTTP (so nodes can get things during iPXE) and doesn't require a token. But you'll need to pick a valid MAC (pick one from the previous command output).
 `curl $BSS_URL/bootscript?mac=ec:e7:a7:05:a1:fc` should show this nodes iPXE chain. 
 
 ### cloud-init
@@ -576,10 +725,16 @@ Then
 curl -s $CLOUD_INIT_URL/compute | jq
 ```
 
-The `ochami-cli` tool makes it a little bit easier to add things
+The `ochami` tool makes it a little bit easier to add things. However, it
+expects an array of cloud-init configs since it can add/update many configs at
+once. We can make this conversion easily:
 ```bash
-ochami-cli cloud-init --update-ci-data --payload test.yaml
-ochami-cli cloud-init --get-ci-data --name compute
+echo "[$(cat test.json)]" | python3 -c 'import sys, yaml, json; print(yaml.dump(json.load(sys.stdin)))' > test2.yaml
+```
+Then, pass it to the tool:
+```bash
+ochami cloud-init config update --payload-format yaml --payload test2.yaml
+ochami cloud-init data get compute
 ```
 
 You can also get the exact cloud-init payloads that a node will get when booting by hitting the `/cloud-init/<name>/{user-data, meta-data}`
@@ -591,9 +746,18 @@ curl -s $CLOUD_INIT_URL/compute/meta-data
 curl -s $CLOUD_INIT_URL/x1000c1s7b0n0/user-data
 curl -s $CLOUD_INIT_URL/x1000c1s7b0n0/meta-data
 ```
+The `ochami` equivalents of the above commands are (note that `--user` is
+optional for fetching user-data):
+```bash
+ochami cloud-init data get --user compute
+ochami cloud-init data get --meta compute
+
+ochami cloud-init data get x1000c1s7b0n0
+ochami cloud-init data get --meta x1000c1s7b0n0
+```
 
 The response you get will depend on `x1000c1s7b0n0` having node specific cloud-init data.
-Let's try something. Copy `test.yaml` to `x1000c1s7b0n0.yaml` and add something different 
+Let's try something. Copy `test2.yaml` to `x1000c1s7b0n0.yaml` and add something different:
 ```yaml
 name: x1000c1s7b0n0
 cloud-init:
@@ -607,44 +771,60 @@ cloud-init:
 
 Then add it to cloud-init
 ```bash
-ochami-cli cloud-init --add-ci-data --payload x1000c1s7b0n0.yaml 
+ochami cloud-init config add --payload-format yaml -f x1000c1s7b0n0.yaml
 ```
 Then get the data
 ```bash
 curl -s $CLOUD_INIT_URL/x1000c1s7b0n0/user-data
 ```
+or use the `ochami` equivalent:
+```bash
+ochami cloud-init data get x1000c1s7b0n0
+```
 What does it look like?
 
-### dnsmasq
-We have dnsmasq as our DHCP provider (no DNS lol) and the configs are set in a couple places. 
-Ansible will set some in the `/etc/ochami/configs/dnsmasq/` directory. These include
-```
-/etc/ochami/configs/dnsmasq/dnsmasq.conf
-/etc/ochami/configs/dnsmasq/site/dhcp.conf
-/etc/ochami/configs/dnsmasq/site/tftp-ipxe.conf
-```
-- The `dnsmasq.conf` shouldn't need any system specific settings.
-- The `dhcp.conf` is where we site IP information. Things like IP ranges, ntp-servers, dns-server, etc
-- The `tftp-ipxe.conf` doesn't have much in it, the only thing you might care about is the last line. We set `ipxe-x86_64.efi` by default. This is for UEFI booting and if you work with OpenCHAMI on any of the CTS1 systems that will have to be changed to `undionly.kpxe` cause those nodes legacy BIOS boot. 
+### CoreDHCP
+We currently use CoreDHCP as our DHCP provider. CoreDHCP is useful because it is
+plugin-based. All incoming DHCP packets are filtered through a list of plugins,
+each of which can optionally modify the response and either pass it through to
+the next plugin or return the response to the client. This is very useful for
+customizing functionality.
 
-The other configs are set by the dnsmasq-loader
-The dnsmasq-loader container will read from SMD and then populate the dnsmasq config files. It will set the hostsfile and optsfiles to match MACs to IPs, and then set the right BSS url.
+The version of CoreDHCP that OpenCHAMI uses is built with a plugin called
+"coresmd" that checks if MAC addresses requesting an IP address exist in SMD and
+serves their corresponding IP address and BSS boot script URL. There is also
+another plugin called "bootloop" that is optional and can be used as a catch-all
+to continuously reboot requesting nodes whose MAC address is unknown to
+SMD.[^bootloop]
 
-You can see the end result by
-```bash
-podman exec -it dnsmasq cat /etc/dnsmasq/site/hosts/hostsfile
-podman exec -it dnsmasq cat /etc/dnsmasq/site/opts/optsfile
-```
-take a single line from each one, the hosts basically matches the MAC to the IP, then sets a tag of `st001`. ( I realize the naming is wrong, there is a bug in the loader script )
-```
-ec:e7:a7:05:a1:fc,set:st001,172.16.0.1,st001
-```
-The from the optsfile
-```
-tag:st001,tag:IPXEBOOT,option:bootfile-name,"http://172.16.0.254:8081/boot/v1/bootscript?mac=ec:e7:a7:05:a1:fc"
-```
-When the node asks for it's iPXE script dnsmasq will match it with the tag and then send if the bootfile-name, which is the BSS url.
+[^bootloop]: The reason for rebooting continuously is so that unknown nodes
+  continuously try to get a new IP address so that in the case these nodes are
+  added to SMD, they can get their IP address with a longer lease. Rebooting is
+  the default behavior, but the bootloop plugin allows customization of the
+  behavior.
 
+Ansible will place the CoreDHCP config file at
+`/etc/ochami/configs/coredhcp.yaml`. Feel free to take a look. See
+[here](https://github.com/OpenCHAMI/deployment-recipes/blob/main/quickstart/DHCP.md)
+for a more in-depth description of how to configure CoreDHCP for OpenCHAMI on a
+"real" system.
+
+The "coresmd" plugin contains its own TFTP server that serves out the iPXE
+bootloader binary matching the system CPU architecture. You can see these here:
+```
+podman exec coresmd ls /tftpboot
+```
+For more advanced "bootloop" plugin config (if used), one can put a custom iPXE
+script in this directory and then replace `default` in the bootloop config line
+with the name of the script file to have that script execute instead of
+rebooting.
+
+CoreDHCP, as OpenCHAMI has it, does not handle DNS itself, but rather outsources
+to other DNS servers (see the `dns` directive in the config file).
+
+Finally, if the static mapping of MAC addresses to IP addresses is required for
+unknown nodes, the CoreDHCP "file" plugin can be added below the coresmd line in
+the config file. See the DHCP.md document linked above for more details.
 
 ### podman volumes, networks, and quadlets oh my
 Not related to OpenCHAMI specifically, but used for this deployment recipe we have lot's of podman concepts being used here. 
@@ -909,13 +1089,13 @@ cd mini-ochami-bootcamp
 ```
 
 All the configs are in `image-configs` and are yaml based. 
-You shouldn't have to make many changes, but go over the yaml files and make sure `parent` and `publish_registry` all point to `registry.dist.si.openchami:5000/<cluster_name>`.  
+You shouldn't have to make many changes, but go over the yaml files and make sure `parent` and `publish_registry` all point to `registry.dist.si.usrc:5000/<cluster_name>`.
 
 Let's build a base image.
 ```bash
 podman run --device /dev/fuse -it --name image-builder --rm -v $PWD:/data image-builder:test 'image-build --log-level INFO --config /data/image-configs/base.yaml'
 ```
-This will push to the `registry.dist.si.openchami:5000/stratus`, which you can then pull from and build on top of.
+This will push to the `registry.dist.si.usrc:5000/stratus`, which you can then pull from and build on top of.
 Let's do that...
 ```bash
 podman run --device /dev/fuse -it --name image-builder --rm -v $PWD:/data image-builder:test 'image-build --log-level INFO --config /data/image-configs/compute-base.yaml'
@@ -931,7 +1111,7 @@ podman run --device /dev/fuse -it --name image-builder --rm -v $PWD:/data image-
 
 Look at us, we built a bunch of layers and now we have an image we can boot. 
 
-The layers are all sitting in the `registry.dist.si.openchami:5000` registry, which means we can pull them and create a bootable image just like before
+The layers are all sitting in the `registry.dist.si.usrc:5000` registry, which means we can pull them and create a bootable image just like before
 ```bash
 podman pull --tls-verify=false registry.dist.si.usrc:5000/stratus/compute-slurm:latest
 ```
@@ -975,7 +1155,7 @@ ansible-playbook -l $HOSTNAME -c local -i inventory -t bss ochami_playbook.yaml
 ```
 and check to make sure your BSS settings look good 
 ```bash
-ochami-cli bss --get-bootparams
+ochami bss boot params get | jq
 ```
 
 So now are using a two step cloud-init process. The current configs you have in cloud-init will still work as they are right now.
@@ -1012,7 +1192,7 @@ cloud-init:
 
 Then add it to the secure cloud-init endpoint
 ```bash
-ochami-cli cloud-init --secure --add-ci-data --payload compute-secure.yaml
+ochami cloud-init --secure config add --payload-format yaml -f compute-secure.yaml
 ```
 
 When the node next boot it will attempt to get the secure data after the JWT is dropped. If it has something (like the munge key) it will run it just like the first cloud-init run. This would be a great place to put the ssh host keys...
@@ -1113,27 +1293,27 @@ cat ~/.ssh/id_rsa.pub | base64
 ```
 And update `compute.yaml` to look something like
 ```yaml
-name: compute
-cloud-init:
-  userdata:
-    ssh_deletekeys: false
-    write_files:
-      - content: |
-          c3NoLXJzYSBBQUFBQjNOemFDMXljMkVBQUFBREFRQUJBQUFCZ1FDOHZ5SExCWEluY0JwN0o0WTc0
-          cXhJNGpSbFgvcFJ5RktyQkd5L2djYkFYKyt3eEF4Mlp3MHFEeHJMM2N5Q1F0U2tyM05iL0l1L3h5
-          dVh2cFpEelJadDZhOHJFWk42L2M4cmhxSzdnS01Mb2tGSXZ5UlBXejhEaHBsL3J4Tk0zOHRINHpV
-          TkhYRHF2ODVCVDA0bVE0ZXdEd1Y2Uk5scUg0aEpOWFEyT3JVdUhuSVVJcUdIRFdtNmpKT0RvRGJJ
-          Nyt2M0t3TWZpNU5PQ25nN2NCSTBETEw1NS94TlZybDNuV3Q4R3diaXFDVHplMUk3ZmZ5UHM2NWhy
-          c25iWUNPSkZHZ1JYSTNPUDhJem5iK0h3bVFlc3dTZUlTSVIxMG1nZ0NYNXdLeGpQb0FIaXA2WXpR
-          eWl1c1RmMCtab3RlRUtMZ2NySjFVbU1uK3psZGk4YSt4RkppblVLYkdVa1BzVHNrN1BSTFVLZmxX
-          UEpQekx4VFl2TWMrZzlvZGl2S0tnRDVnMFVSN0NnZVdNWnNSR280WFhZZlE3QWo2L05vM3FUK3lT
-          T3h3aGNycDUxampuMmNuWjFjQkhIL0lqUXJ2d3dDOXYzZXgrZVdoK0NpcTVHdDhKRUFCY2diY1g5
-          dzdTMlZsYkZqS2VPY2kzb3oza3RVU3lkNlpreWZKbFVQaHBpZnM9IHJvb3RAc3QtaGVhZC5zaS51
-          c3JjCg==
-        path: /root/.ssh/authorized_keys
-        encoding: base64
-  metadata:
-    instance-id: ochami-compute
+- name: compute
+  cloud-init:
+    userdata:
+      ssh_deletekeys: false
+      write_files:
+        - content: |
+            c3NoLXJzYSBBQUFBQjNOemFDMXljMkVBQUFBREFRQUJBQUFCZ1FDWXJ2bkI3TmlVaWovZGM0M214
+            d1JnWUttUDhUdUF0dG5TK0ptRXZ0OU9xeGxxclVLaHVHSWU1Zk16b0pRM2VaTVcveW96bUZYQmlV
+            Wlk2dzJPQUtWOFNJaUJTQ0xkTTk1K0RMOGdvNER1dldqNE1RdXkweFB6ZHpuR0FMY1UralVjZHow
+            MUt6aDFhUFJOWkJZRFBNVy9sQlJRa2w2MzNHamVZRU5KOG1UcVpFSkNKeFJPZ2VPbGFxOE11TkZO
+            aGVyVjZDeHhtMmF2R1VuYTlNOU55ZEJTZE9lR2ZPTjRjd3R5ZktpSXFXVUpETEppYkw3dVN0Nnd2
+            V3dGR2ZPaHdHZ3Yvc2ZYQmZlSG5oRTYyL245ejhEcDRLdDJnallqRWlNVTVZM0paR1A0ZWpQUnB5
+            eHN6alRQZmJydE9QK2RlYmphMlFSTi9nTDZDNTFDOUcwd2ZxQkNLUkRwa1RkK0cwd1FJbGZrKy9x
+            NUU2blgzR3FxYllFbFBCVEU2NHlRQUpkT0ROUFltK2Q3SmEwUkN1dW45RytuK3ExNmtGUGdhak5y
+            S1VXTmkzZUVhaVU0OVk0WEdHZlBWK1h1ZENydUdSNXExSGZMaUZCcjdOTWVJK3pGcUNVbmdlOHFB
+            ZjN5Vll4dnJXL1VjdGx0S1d1ckVNSmM2c1luS1hnYU1QbWxwZGs9IHJvb3RAc3QtaGVhZC5zaS51
+            c3JjCg==
+          path: /root/.ssh/authorized_keys
+          encoding: base64
+    metadata:
+      instance-id: ochami-compute
 ```
 Replace the `content` section with your pub key output.  
 We'll use this to build on going forward.
@@ -1192,64 +1372,64 @@ We're turning off selinux and the firewall, plus telling chrony to restart after
 
 The entire `compute.yaml` should look something like this:
 ```yaml
-name: compute
-cloud-init:
-  userdata:
-    ssh_deletekeys: false
-    write_files:
-      - content: |
-          c3NoLXJzYSBBQUFBQjNOemFDMXljMkVBQUFBREFRQUJBQUFCZ1FDOHZ5SExCWEluY0JwN0o0WTc0
-          cXhJNGpSbFgvcFJ5RktyQkd5L2djYkFYKyt3eEF4Mlp3MHFEeHJMM2N5Q1F0U2tyM05iL0l1L3h5
-          dVh2cFpEelJadDZhOHJFWk42L2M4cmhxSzdnS01Mb2tGSXZ5UlBXejhEaHBsL3J4Tk0zOHRINHpV
-          TkhYRHF2ODVCVDA0bVE0ZXdEd1Y2Uk5scUg0aEpOWFEyT3JVdUhuSVVJcUdIRFdtNmpKT0RvRGJJ
-          Nyt2M0t3TWZpNU5PQ25nN2NCSTBETEw1NS94TlZybDNuV3Q4R3diaXFDVHplMUk3ZmZ5UHM2NWhy
-          c25iWUNPSkZHZ1JYSTNPUDhJem5iK0h3bVFlc3dTZUlTSVIxMG1nZ0NYNXdLeGpQb0FIaXA2WXpR
-          eWl1c1RmMCtab3RlRUtMZ2NySjFVbU1uK3psZGk4YSt4RkppblVLYkdVa1BzVHNrN1BSTFVLZmxX
-          UEpQekx4VFl2TWMrZzlvZGl2S0tnRDVnMFVSN0NnZVdNWnNSR280WFhZZlE3QWo2L05vM3FUK3lT
-          T3h3aGNycDUxampuMmNuWjFjQkhIL0lqUXJ2d3dDOXYzZXgrZVdoK0NpcTVHdDhKRUFCY2diY1g5
-          dzdTMlZsYkZqS2VPY2kzb3oza3RVU3lkNlpreWZKbFVQaHBpZnM9IHJvb3RAc3QtaGVhZC5zaS51
-          c3JjCg==
-        path: /root/.ssh/authorized_keys
-        encoding: base64
-      - content: |
-          SLURMD_OPTIONS=--conf-server 172.16.0.254:6817
-        path: /etc/sysconfig/slurmd
-      - content: |
-          server 172.16.0.254 iburst
-          driftfile /var/lib/chrony/drift
-          makestep 1.0 3
-          rtcsync
-          keyfile /etc/chrony.keys
-          leapsectz right/UTC
-          logdir /var/log/chrony
-        path: /etc/chrony.conf
-      - content: |
-          172.16.0.254    demo-head
-          172.16.0.1      nid001
-          172.16.0.2      nid002
-          172.16.0.3      nid003
-          172.16.0.4      nid004
-          172.16.0.5      nid005
-          172.16.0.6      nid006
-          172.16.0.7      nid007
-          172.16.0.8      nid008
-          172.16.0.9      nid009
-          172.16.0.101    nid-bmc001
-          172.16.0.102    nid-bmc002
-          172.16.0.103    nid-bmc003
-          172.16.0.104    nid-bmc004
-          172.16.0.105    nid-bmc005
-          172.16.0.106    nid-bmc006
-          172.16.0.107    nid-bmc007
-          172.16.0.108    nid-bmc008
-          172.16.0.109    nid-bmc009
-        path: /etc/hosts
-    runcmd:
-      - setenforce 0
-      - systemctl stop firewalld
-      - systemctl restart chronyd
-  metadata:
-    instance-id: ochami-compute
+- name: compute
+  cloud-init:
+    userdata:
+      ssh_deletekeys: false
+      write_files:
+        - content: |
+            c3NoLXJzYSBBQUFBQjNOemFDMXljMkVBQUFBREFRQUJBQUFCZ1FDWXJ2bkI3TmlVaWovZGM0M214
+            d1JnWUttUDhUdUF0dG5TK0ptRXZ0OU9xeGxxclVLaHVHSWU1Zk16b0pRM2VaTVcveW96bUZYQmlV
+            Wlk2dzJPQUtWOFNJaUJTQ0xkTTk1K0RMOGdvNER1dldqNE1RdXkweFB6ZHpuR0FMY1UralVjZHow
+            MUt6aDFhUFJOWkJZRFBNVy9sQlJRa2w2MzNHamVZRU5KOG1UcVpFSkNKeFJPZ2VPbGFxOE11TkZO
+            aGVyVjZDeHhtMmF2R1VuYTlNOU55ZEJTZE9lR2ZPTjRjd3R5ZktpSXFXVUpETEppYkw3dVN0Nnd2
+            V3dGR2ZPaHdHZ3Yvc2ZYQmZlSG5oRTYyL245ejhEcDRLdDJnallqRWlNVTVZM0paR1A0ZWpQUnB5
+            eHN6alRQZmJydE9QK2RlYmphMlFSTi9nTDZDNTFDOUcwd2ZxQkNLUkRwa1RkK0cwd1FJbGZrKy9x
+            NUU2blgzR3FxYllFbFBCVEU2NHlRQUpkT0ROUFltK2Q3SmEwUkN1dW45RytuK3ExNmtGUGdhak5y
+            S1VXTmkzZUVhaVU0OVk0WEdHZlBWK1h1ZENydUdSNXExSGZMaUZCcjdOTWVJK3pGcUNVbmdlOHFB
+            ZjN5Vll4dnJXL1VjdGx0S1d1ckVNSmM2c1luS1hnYU1QbWxwZGs9IHJvb3RAc3QtaGVhZC5zaS51
+            c3JjCg==
+          path: /root/.ssh/authorized_keys
+          encoding: base64
+        - content: |
+            SLURMD_OPTIONS=--conf-server 172.16.0.254:6817
+          path: /etc/sysconfig/slurmd
+        - content: |
+            server 172.16.0.254 iburst
+            driftfile /var/lib/chrony/drift
+            makestep 1.0 3
+            rtcsync
+            keyfile /etc/chrony.keys
+            leapsectz right/UTC
+            logdir /var/log/chrony
+          path: /etc/chrony.conf
+        - content: |
+            172.16.0.254    demo-head
+            172.16.0.1      nid001
+            172.16.0.2      nid002
+            172.16.0.3      nid003
+            172.16.0.4      nid004
+            172.16.0.5      nid005
+            172.16.0.6      nid006
+            172.16.0.7      nid007
+            172.16.0.8      nid008
+            172.16.0.9      nid009
+            172.16.0.101    nid-bmc001
+            172.16.0.102    nid-bmc002
+            172.16.0.103    nid-bmc003
+            172.16.0.104    nid-bmc004
+            172.16.0.105    nid-bmc005
+            172.16.0.106    nid-bmc006
+            172.16.0.107    nid-bmc007
+            172.16.0.108    nid-bmc008
+            172.16.0.109    nid-bmc009
+          path: /etc/hosts
+      runcmd:
+        - setenforce 0
+        - systemctl stop firewalld
+        - systemctl restart chronyd
+    metadata:
+      instance-id: ochami-compute
 ```
 ### Secure cloud-init
 Now let's update our secure stuff. We already have a munge key from before and it should look something like
@@ -1279,8 +1459,8 @@ runcmd:
 
 Now let's apply these new configs
 ```bash
-ochami-cli cloud-init --update-ci-data --payload compute.yaml
-ochami-cli cloud-init --update-ci-data --secure --payload compute-secure.yaml
+ochami cloud-init config update --payload-format yaml -f compute.yaml
+ochami cloud-init --secure config update --payload-format yaml -f compute-secure.yaml
 ```
 The next time you reboot the nodes slurm should (hopefully) be working!
 
