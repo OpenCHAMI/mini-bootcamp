@@ -28,10 +28,12 @@ wg genkey | tee /etc/wireguard/private.key | wg pubkey > /etc/wireguard/public.k
 echo "Making Request to configure wireguard tunnel"
 PUBLIC_KEY=$(cat /etc/wireguard/public.key)
 PAYLOAD="{ \"public_key\": \"${PUBLIC_KEY}\" }"
-WG_PAYLOAD=$(curl -s -X POST -d "${PAYLOAD}" http://${ochami_wg_ip}:8081/cloud-init/wg-init)
+WG_PAYLOAD=$(curl -s -X POST -d "${PAYLOAD}" http://${ochami_wg_ip}:27777/cloud-init/wg-init)
+
+echo $WG_PAYLOAD | jq
 
 CLIENT_IP=$(echo $WG_PAYLOAD | jq -r '."client-vpn-ip"')
-SERVER_IP=$(echo $WG_PAYLOAD | jq -r '."server-ip"')
+SERVER_IP=$(echo $WG_PAYLOAD | jq -r '."server-ip"' | awk -F'/' '{print $1}')
 SERVER_PORT=$(echo $WG_PAYLOAD | jq -r '."server-port"')
 SERVER_KEY=$(echo $WG_PAYLOAD | jq -r '."server-public-key"')
 
@@ -40,7 +42,7 @@ ip link add dev wg0 type wireguard
 ip address add dev wg0 ${CLIENT_IP}/24
 wg set wg0 private-key /etc/wireguard/private.key
 ip link set wg0 up
-wg set wg0 peer ${SERVER_KEY} allowed-ips ${CLIENT_IP}/32 endpoint ${ochami_wg_ip}:${ochami_wg_port}
+wg set wg0 peer ${SERVER_KEY} allowed-ips ${SERVER_IP}/32 endpoint ${ochami_wg_ip}:${ochami_wg_port}
 
 echo "Setting cloud-init to use wireguard server"
 ochami_ci_url="http://${SERVER_IP}:27777/cloud-init"
