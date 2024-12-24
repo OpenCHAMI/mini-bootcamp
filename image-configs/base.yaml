@@ -1,7 +1,7 @@
 options:
   layer_type: 'base'
   name: 'rocky-base'
-  publish_tags: '8.9'
+  publish_tags: '8.10'
   pkg_manager: 'dnf'
   parent: 'scratch'
   publish_registry: 'registry.dist.si.usrc:5000/stratus'
@@ -10,17 +10,14 @@ options:
 
 repos:
   - alias: 'Rock_BaseOS'
-    url: 'http://10.15.3.42/repo/pub/rocky/8/BaseOS/x86_64/os'
+    url: 'https://dl.rockylinux.org/pub/rocky/8/BaseOS/x86_64/os'
     gpg: 'https://dl.rockylinux.org/pub/rocky/RPM-GPG-KEY-Rocky-8'
   - alias: 'Rock_AppStream'
-    url: 'http://10.15.3.42/repo/pub/rocky/8/AppStream/x86_64/os'
+    url: 'https://dl.rockylinux.org/pub/rocky/8/AppStream/x86_64/os'
     gpg: 'https://dl.rockylinux.org/pub/rocky/RPM-GPG-KEY-Rocky-8'
   - alias: 'Rock_PowerTools'
-    url: 'http://10.15.3.42/repo/pub/rocky/8/PowerTools/x86_64/os'
+    url: 'https://dl.rockylinux.org/pub/rocky/8/PowerTools/x86_64/os'
     gpg: 'https://dl.rockylinux.org/pub/rocky/RPM-GPG-KEY-Rocky-8'
-  - alias: 'Epel'
-    url: 'http://10.15.3.42/repo/pub/rocky/epel/8/Everything/x86_64/'
-    gpg: 'https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-8'
 
 package_groups:
   - 'Minimal Install'
@@ -30,6 +27,10 @@ packages:
   - kernel
   - wget
   - dracut-live
+  - epel-release
+  - elrepo-release
 
-remove_packages:
-  - rocky-repos
+
+cmds:
+  - cmd: '/usr/bin/crb enable'
+  - cmd: 'dnf -y copr enable jdoss/wireguard'

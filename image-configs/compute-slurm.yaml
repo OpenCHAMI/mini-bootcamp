@@ -2,9 +2,10 @@ options:
   layer_type: 'base'
   name: 'compute-slurm'
   publish_tags:
-    - 'test'
+    - '8.10'
+    - 'latest'
   pkg_manager: 'dnf'
-  parent: 'registry.dist.si.usrc/stratus/compute-mlnx:8.9'
+  parent: 'registry.dist.si.usrc/stratus/compute-mlnx:8.10'
   registry_opts_pull:
     - '--tls-verify=false'
 
@@ -13,14 +14,16 @@ options:
   registry_opts_push:
     - '--tls-verify=false'
 
-repos:
-  - alias: 'elrepo'
-    url: 'http://elrepo.org/linux/elrepo/el8/x86_64/'
+      #repos:
+      #  - alias: 'elrepo'
+      #    url: 'http://elrepo.org/linux/elrepo/el8/x86_64/'
 
 packages:
+  - elrepo-release
   - slurm-ohpc
   - slurm-slurmd-ohpc
   - slurm-example-configs-ohpc
+  - kernel-headers
   - wireguard-tools
   - kmod-wireguard
 
@@ -38,3 +41,4 @@ cmds:
   - cmd: 'chown -R munge:munge /var/lib/munge'
   - cmd: 'chown -R munge:munge /var/log/munge'
   - cmd: 'chown -R munge:munge /etc/munge'
+  - cmd: 'echo test123456 | passwd root --stdin'

@@ -2,10 +2,10 @@ options:
   layer_type: 'base'
   name: 'compute-base'
   publish_tags:
-    - '8.9'
+    - '8.10'
     - 'latest'
   pkg_manager: 'dnf'
-  parent: 'registry.dist.si.usrc/stratus/rocky-base:8.9'
+  parent: 'registry.dist.si.usrc/stratus/rocky-base:8.10'
   registry_opts_pull:
     - '--tls-verify=false'
   
@@ -15,14 +15,12 @@ options:
     - '--tls-verify=false'
 
 repos:
-  - alias: 'docker-ce'
-    url: 'https://download.docker.com/linux/centos/docker-ce.repo'
   - alias: 'OpenHPC'
-    url: 'http://dist.si.usrc/repo/el8/openhpc'
-    gpg: 'http://dist.si.usrc/repo/el8/openhpc/repodata/repomd.xml.key'
+    url: 'https://repos.openhpc.community/OpenHPC/2/EL_8/'
+    gpg: 'https://repos.openhpc.community/OpenHPC/2/EL_8/repodata/repomd.xml.key'
   - alias: 'OpenHPC-updates'
-    url: 'http://dist.si.usrc/repo/el8/openhpc/updates'
-    gpg: 'http://dist.si.usrc/repo/el8/openhpc/updates/repodata/repomd.xml.key'
+    url: 'https://repos.openhpc.community/OpenHPC/2/update.2.9/EL_8/'
+    gpg: 'https://repos.openhpc.community/OpenHPC/2/update.2.9/EL_8/repodata/repomd.xml.key'
 
 packages:
   - cloud-init
