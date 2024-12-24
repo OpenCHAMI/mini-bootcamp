@@ -33,19 +33,3 @@ packages:
 
 remove_packages:
   - rocky-repos
-
-copyfiles:
-  # Overrides for cloud-init
-  - src: '/data/image-configs/files/cloud-init-override.conf'
-    dest: '/etc/systemd/system/cloud-init.service.d/override.conf'
-  - src: '/data/image-configs/files/ochami-ci-setup.sh'
-    dest: '/usr/local/bin/ochami-ci-setup.sh'
-  - src: '/data/image-configs/files/cloud-cfg-d-ochami.cfg.template'
-    dest: '/etc/cloud/cloud.cfg.d/ochami.cfg.template'
-  # Implementation of secure, JWT-auth'd cloud-init
-  - src: '/data/image-configs/files/cloud-init-secure.path'
-    dest: '/etc/systemd/system/cloud-init-secure.path'
-  - src: '/data/image-configs/files/cloud-init-secure.service'
-    dest: '/etc/systemd/system/cloud-init-secure.service'
-  - src: '/data/image-configs/files/ochami-ci-secure-setup.sh'
-    dest: '/usr/local/bin/ochami-ci-secure-setup.sh'
